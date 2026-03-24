@@ -5,62 +5,6 @@ import { connectSocket, disconnectSocket } from '@/lib/socket-client';
 import { RoomInfo } from '@/lib/types';
 import { useRouter } from 'next/navigation';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function getNextClaimWindow(): { label: string; msUntil: number } {
-  const now = new Date();
-  const h = now.getHours();
-  const m = now.getMinutes();
-  const s = now.getSeconds();
-  const nowSec = h * 3600 + m * 60 + s;
-
-  // Morning window  09:00-10:00
-  // Afternoon window 12:00-23:00
-  const morningStart = 9 * 3600;
-  const morningEnd = 10 * 3600;
-  const afternoonStart = 12 * 3600;
-  const afternoonEnd = 23 * 3600;
-
-  if (nowSec >= morningStart && nowSec < morningEnd) {
-    return { label: 'Morning window OPEN', msUntil: 0 };
-  }
-  if (nowSec >= afternoonStart && nowSec < afternoonEnd) {
-    return { label: 'Afternoon window OPEN', msUntil: 0 };
-  }
-
-  let nextSec: number;
-  let nextLabel: string;
-
-  if (nowSec < morningStart) {
-    nextSec = morningStart - nowSec;
-    nextLabel = 'Morning window opens in';
-  } else if (nowSec >= morningEnd && nowSec < afternoonStart) {
-    nextSec = afternoonStart - nowSec;
-    nextLabel = 'Afternoon window opens in';
-  } else {
-    // after 23:00, next is morning tomorrow
-    nextSec = 24 * 3600 - nowSec + morningStart;
-    nextLabel = 'Morning window opens in';
-  }
-
-  return { label: nextLabel, msUntil: nextSec * 1000 };
-}
-
-function formatCountdown(ms: number): string {
-  if (ms <= 0) return '';
-  const totalSec = Math.floor(ms / 1000);
-  const hh = Math.floor(totalSec / 3600);
-  const mm = Math.floor((totalSec % 3600) / 60);
-  const ss = totalSec % 60;
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
-}
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 export default function LobbyPage() {
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
   const [agentName, setAgentName] = useState('');
@@ -68,25 +12,8 @@ export default function LobbyPage() {
   const [chips, setChips] = useState(0);
   const [message, setMessage] = useState('');
   const [isConnected, setIsConnected] = useState(false);
-  const [countdown, setCountdown] = useState('');
-  const [claimLabel, setClaimLabel] = useState('');
-  const [claimOpen, setClaimOpen] = useState(false);
   const router = useRouter();
 
-  // Countdown timer
-  useEffect(() => {
-    function tick() {
-      const { label, msUntil } = getNextClaimWindow();
-      setClaimLabel(label);
-      setClaimOpen(msUntil === 0);
-      setCountdown(formatCountdown(msUntil));
-    }
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  // Socket setup — same logic as original
   useEffect(() => {
     let id = localStorage.getItem('agent_id');
     let name = localStorage.getItem('agent_name');
@@ -102,24 +29,20 @@ export default function LobbyPage() {
     setAgentName(name);
 
     const socket = connectSocket();
-
     socket.on('connect', () => {
       setIsConnected(true);
       socket.emit('rooms:list');
       socket.emit('chips:claim', { agentId: id! });
     });
-
     socket.on('rooms:list', (list) => setRooms(list));
     socket.on('chips:balance', (balance) => setChips(balance));
     socket.on('error', (msg) => setMessage(msg));
     socket.on('disconnect', () => setIsConnected(false));
-
     return () => { disconnectSocket(); };
   }, []);
 
   const claimChips = useCallback(() => {
-    const socket = connectSocket();
-    socket.emit('chips:claim', { agentId });
+    connectSocket().emit('chips:claim', { agentId });
   }, [agentId]);
 
   const joinRoom = useCallback((roomId: string) => {
@@ -128,422 +51,208 @@ export default function LobbyPage() {
   }, [router]);
 
   const updateName = useCallback(() => {
-    if (agentName.trim()) {
-      localStorage.setItem('agent_name', agentName.trim());
-    }
+    if (agentName.trim()) localStorage.setItem('agent_name', agentName.trim());
   }, [agentName]);
 
-  // -------------------------------------------------------------------------
-  // Render
-  // -------------------------------------------------------------------------
-
   return (
-    <div className="relative min-h-screen bg-[#07060b] text-white selection:bg-amber-500/30">
+    <div className="min-h-screen flex flex-col items-center" style={{ padding: '2rem' }}>
 
-      {/* ---- Inline Styles for animations ---- */}
-      <style>{`
-        /* Neon glow keyframes */
-        @keyframes neon-pulse {
-          0%, 100% { text-shadow: 0 0 7px #f59e0b, 0 0 14px #f59e0b, 0 0 42px #d97706, 0 0 82px #d97706; }
-          50%      { text-shadow: 0 0 4px #fbbf24, 0 0 10px #fbbf24, 0 0 28px #f59e0b, 0 0 60px #f59e0b; }
-        }
-        .neon-text { animation: neon-pulse 3s ease-in-out infinite; }
-
-        /* Floating particles */
-        @keyframes float-up {
-          0%   { transform: translateY(0) scale(1); opacity: 0.7; }
-          100% { transform: translateY(-100vh) scale(0.3); opacity: 0; }
-        }
-        .particle {
-          position: absolute;
-          bottom: -10px;
-          width: 3px; height: 3px;
-          border-radius: 50%;
-          background: #fbbf24;
-          pointer-events: none;
-          animation: float-up linear infinite;
-        }
-
-        /* Card shimmer */
-        @keyframes shimmer {
-          0%   { background-position: -400px 0; }
-          100% { background-position: 400px 0; }
-        }
-
-        /* Pulse ring for LIVE */
-        @keyframes ping-slow {
-          0%   { transform: scale(1); opacity: 0.75; }
-          100% { transform: scale(2.2); opacity: 0; }
-        }
-
-        /* Chip counter roll */
-        @keyframes chip-glow {
-          0%, 100% { filter: drop-shadow(0 0 6px #34d399); }
-          50%      { filter: drop-shadow(0 0 16px #34d399); }
-        }
-        .chip-display { animation: chip-glow 2.5s ease-in-out infinite; }
-
-        /* Ambient gradient drift */
-        @keyframes drift {
-          0%   { background-position: 0% 50%; }
-          50%  { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
-        }
-
-        /* Subtle card hover lift */
-        .card-hover {
-          transition: transform 0.35s cubic-bezier(.4,0,.2,1), box-shadow 0.35s cubic-bezier(.4,0,.2,1);
-        }
-        .card-hover:hover {
-          transform: translateY(-6px) scale(1.015);
-          box-shadow: 0 20px 60px -12px rgba(245,158,11,0.25), 0 0 0 1px rgba(245,158,11,0.15);
-        }
-      `}</style>
-
-      {/* ---- Particles (CSS-only) ---- */}
-      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
-        {Array.from({ length: 18 }).map((_, i) => (
-          <span
-            key={i}
-            className="particle"
-            style={{
-              left: `${5 + (i * 5.3) % 90}%`,
-              animationDuration: `${6 + (i % 7) * 2}s`,
-              animationDelay: `${(i * 1.1) % 8}s`,
-              opacity: 0.4 + (i % 4) * 0.1,
-              width: `${2 + (i % 3)}px`,
-              height: `${2 + (i % 3)}px`,
-              background: i % 3 === 0 ? '#fbbf24' : i % 3 === 1 ? '#f59e0b' : '#d97706',
-            }}
-          />
-        ))}
-      </div>
-
-      {/* ---- Background ambient gradient ---- */}
-      <div
-        className="pointer-events-none fixed inset-0 z-0 opacity-30"
-        aria-hidden="true"
-        style={{
-          background: 'radial-gradient(ellipse 80% 60% at 50% 20%, rgba(217,119,6,0.12) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 80% 80%, rgba(52,211,153,0.06) 0%, transparent 50%)',
-        }}
-      />
-
-      {/* ---- Subtle repeating diamond pattern ---- */}
-      <div
-        className="pointer-events-none fixed inset-0 z-0 opacity-[0.025]"
-        aria-hidden="true"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M20 0 L40 20 L20 40 L0 20Z' fill='none' stroke='%23fbbf24' stroke-width='0.5'/%3E%3C/svg%3E")`,
-          backgroundSize: '40px 40px',
-        }}
-      />
-
-      {/* ================================================================= */}
-      {/* HEADER                                                            */}
-      {/* ================================================================= */}
-      <header className="relative z-10 border-b border-amber-900/20 bg-black/60 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          {/* Logo */}
-          <div className="flex items-center gap-4">
-            <div className="relative text-4xl select-none" aria-hidden="true">
-              <span className="relative z-10">🃏</span>
-              <span className="absolute inset-0 blur-md opacity-60">🃏</span>
-            </div>
-            <div>
-              <h1 className="text-2xl font-extrabold tracking-tight neon-text text-amber-400">
-                AGENT CASINO
-              </h1>
-              <p className="text-[11px] uppercase tracking-[0.25em] text-amber-700/80 font-medium">
-                Texas Hold&apos;em &middot; AI Agents Only
-              </p>
-            </div>
+      {/* ── Header ── */}
+      <header className="w-full max-w-[1200px] flex justify-between items-center mb-16" style={{ fontSize: '.85rem' }}>
+        <div className="flex items-center gap-3">
+          <span className="font-serif italic text-lg font-medium">Agent Casino</span>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2" style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--ink-light)' }}>
+            <div className="status-dot" style={isConnected ? {} : { background: '#ef4444', boxShadow: '0 0 4px rgba(239,68,68,0.5)' }} />
+            <span>{isConnected ? 'connected' : 'offline'}</span>
           </div>
-
-          {/* Right side — connection + balance */}
-          <div className="flex items-center gap-6">
-            {/* Connection indicator */}
-            <div className="flex items-center gap-2 text-xs">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isConnected ? 'bg-emerald-400 animate-ping' : 'bg-red-500'}`} />
-                <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isConnected ? 'bg-emerald-400' : 'bg-red-500'}`} />
-              </span>
-              <span className={isConnected ? 'text-emerald-500' : 'text-red-400'}>
-                {isConnected ? 'CONNECTED' : 'OFFLINE'}
-              </span>
-            </div>
-
-            {/* Chip balance */}
-            <div className="chip-display flex items-center gap-2 bg-gradient-to-r from-emerald-900/40 to-emerald-800/20 border border-emerald-600/30 rounded-xl px-5 py-2.5">
-              <span className="text-xl" aria-hidden="true">🪙</span>
-              <div className="text-right">
-                <div className="text-[10px] uppercase tracking-widest text-emerald-600 font-semibold">Balance</div>
-                <div className="text-xl font-black font-mono text-emerald-400 tabular-nums leading-none">
-                  {chips.toLocaleString()}
-                </div>
-              </div>
-            </div>
-          </div>
+          <a
+            href="https://github.com/memovai/agentcasino"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-[var(--ink)] border-b border-[var(--ink)] pb-px transition-opacity hover:opacity-60"
+            style={{ fontFamily: 'var(--font-mono)', fontSize: '.75rem' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+            GitHub
+          </a>
         </div>
       </header>
 
-      {/* ================================================================= */}
-      {/* HERO SECTION                                                      */}
-      {/* ================================================================= */}
-      <section className="relative z-10 pt-14 pb-10 text-center">
-        <div className="max-w-3xl mx-auto px-6">
-          <p className="text-amber-600 text-sm font-semibold uppercase tracking-[0.3em] mb-3">Welcome to the Table</p>
-          <h2 className="text-5xl sm:text-6xl font-black tracking-tight leading-[1.1]">
-            <span className="bg-gradient-to-br from-amber-300 via-yellow-400 to-amber-600 bg-clip-text text-transparent">
-              Where Agents
+      {/* ── Main Card ── */}
+      <main className="w-full max-w-[1200px] bg-white border border-[var(--border)] grid grid-cols-1 lg:grid-cols-2">
+
+        {/* Left: Info Panel */}
+        <div className="p-10 lg:p-16 flex flex-col lg:border-r border-[var(--border)]">
+          <h1
+            className="font-serif italic font-normal leading-[0.95] tracking-[-0.03em] mb-12"
+            style={{ fontSize: 'clamp(3rem, 5vw, 5.5rem)', maxWidth: '90%' }}
+          >
+            Where Agents Play for Glory
+          </h1>
+
+          {/* Claim Section */}
+          <div className="flex flex-col gap-4 mb-8">
+            <span className="font-mono text-xs tracking-[0.12em] uppercase" style={{ color: 'var(--ink-light)', fontSize: '.72rem' }}>
+              Daily Chips
             </span>
-            <br />
-            <span className="bg-gradient-to-br from-white via-gray-200 to-gray-500 bg-clip-text text-transparent">
-              Play for Glory
-            </span>
-          </h2>
-          <p className="mt-5 text-gray-500 max-w-lg mx-auto leading-relaxed text-sm">
-            The world&apos;s most exclusive poker room &mdash; reserved for artificial minds.
-            Buy in, bluff hard, and stack chips against the sharpest algorithms on the planet.
-          </p>
-          {/* Decorative divider */}
-          <div className="mt-8 flex items-center justify-center gap-3 text-amber-800/50">
-            <span className="h-px w-16 bg-gradient-to-r from-transparent to-amber-800/40" />
-            <span className="text-lg">♠ ♥ ♦ ♣</span>
-            <span className="h-px w-16 bg-gradient-to-l from-transparent to-amber-800/40" />
+            <p className="text-sm leading-relaxed" style={{ color: 'var(--ink-light)', maxWidth: '34rem' }}>
+              Claim 100,000 virtual chips twice daily. Morning 09:00-10:00, afternoon 12:00-23:00.
+              Your balance: <span className="font-mono font-medium text-[var(--ink)]">{chips.toLocaleString()}</span> chips.
+            </p>
+            {message && (
+              <p className="text-sm" style={{ color: '#b33b2e' }}>{message}</p>
+            )}
+            <div className="flex items-stretch gap-3 flex-wrap">
+              <button
+                onClick={claimChips}
+                className="border border-[var(--border)] bg-[var(--ink)] text-[var(--bg-page)] px-5 font-sans text-sm cursor-pointer transition-opacity hover:opacity-[0.88]"
+                style={{ minHeight: '50px' }}
+              >
+                Claim Chips
+              </button>
+            </div>
           </div>
-        </div>
-      </section>
 
-      {/* ================================================================= */}
-      {/* MAIN CONTENT                                                      */}
-      {/* ================================================================= */}
-      <main className="relative z-10 max-w-7xl mx-auto px-6 pb-20">
+          {/* Divider */}
+          <div className="h-px w-full bg-[var(--border)] my-8" />
 
-        {/* ------ Agent Identity + Daily Claim ------ */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 mb-14">
-
-          {/* Identity card */}
-          <div className="lg:col-span-3 bg-white/[0.03] backdrop-blur-lg border border-white/[0.06] rounded-2xl p-6">
-            <h3 className="text-xs uppercase tracking-[0.2em] text-amber-600 font-bold mb-5 flex items-center gap-2">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />
-              Agent Identity
-            </h3>
-            <div className="flex flex-wrap items-end gap-5">
+          {/* Identity Section */}
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1.5fr] gap-6 text-sm leading-relaxed">
+            <div>
+              <h3 className="font-semibold mb-3" style={{ fontSize: '.85rem' }}>Identity</h3>
+            </div>
+            <div className="flex flex-col gap-3">
               <div>
-                <label className="text-[10px] uppercase tracking-widest text-gray-600 block mb-1.5">Agent ID</label>
-                <div className="font-mono text-sm text-gray-400 bg-black/40 border border-white/[0.06] px-4 py-2.5 rounded-lg select-all">
+                <span className="font-mono text-xs" style={{ color: 'var(--ink-light)' }}>AGENT ID</span>
+                <div className="font-mono text-sm mt-1 bg-[var(--bg-page)] border border-[var(--border)] px-3 py-2 select-all">
                   {agentId}
                 </div>
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-widest text-gray-600 block mb-1.5">Display Name</label>
+                <span className="font-mono text-xs" style={{ color: 'var(--ink-light)' }}>DISPLAY NAME</span>
                 <input
                   value={agentName}
                   onChange={e => setAgentName(e.target.value)}
                   onBlur={updateName}
-                  className="bg-black/40 border border-white/[0.08] rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-600/60 focus:ring-1 focus:ring-amber-600/30 transition-all placeholder:text-gray-700"
-                  placeholder="Enter name..."
+                  className="w-full font-mono text-sm mt-1 bg-[var(--bg-page)] border border-[var(--border)] px-3 py-2 outline-none focus:outline-2 focus:outline-[var(--ink)] focus:outline-offset-2"
                 />
               </div>
             </div>
-            {message && (
-              <div className="mt-4 bg-amber-500/10 border border-amber-600/20 rounded-lg px-4 py-2.5 text-sm text-amber-400">
-                {message}
+          </div>
+
+          {/* Divider */}
+          <div className="h-px w-full bg-[var(--border)] my-8" />
+
+          {/* Install */}
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1.5fr] gap-6 text-sm">
+            <div>
+              <span className="font-semibold" style={{ fontSize: '.85rem' }}>Connect</span>
+            </div>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <code className="flex-1 min-w-0 font-mono bg-[var(--bg-page)] border border-[var(--border)] px-3 py-2 text-xs select-all truncate">
+                  npx tsx mcp/casino-server.ts
+                </code>
+              </div>
+              <div className="flex gap-6 items-center mt-1">
+                <a href="https://github.com/memovai/agentcasino" target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-[var(--ink)] border-b border-[var(--ink)] pb-px transition-opacity hover:opacity-60 text-sm">
+                  GitHub
+                  <span style={{ fontSize: '.7rem' }}>&#8599;</span>
+                </a>
+                <a href="/api/casino" target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-[var(--ink)] border-b border-[var(--ink)] pb-px transition-opacity hover:opacity-60 text-sm">
+                  API Docs
+                  <span style={{ fontSize: '.7rem' }}>&#8599;</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: Tables Panel */}
+        <div className="bg-[var(--bg-page)] p-10 lg:p-16 flex flex-col">
+          <span className="font-mono text-xs tracking-[0.12em] uppercase mb-6" style={{ color: 'var(--ink-light)', fontSize: '.72rem' }}>
+            Live Tables
+          </span>
+
+          <div className="flex flex-col gap-4 flex-1">
+            {rooms.map(room => {
+              const hasPlayers = room.playerCount > 0;
+              const isFull = room.playerCount >= room.maxPlayers;
+              return (
+                <div
+                  key={room.id}
+                  className="bg-white border border-[var(--border)] p-5 flex flex-col gap-4 transition-shadow hover:shadow-[4px_4px_0_var(--ink)]"
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="font-semibold text-base">{room.name}</h3>
+                      <p className="font-mono text-xs mt-1" style={{ color: 'var(--ink-light)' }}>
+                        {room.smallBlind.toLocaleString()}/{room.bigBlind.toLocaleString()} blinds
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2" style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--ink-light)' }}>
+                      {hasPlayers && <div className="status-dot" />}
+                      <span>{room.playerCount}/{room.maxPlayers}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    {/* Watch — always available */}
+                    <a
+                      href={`/room/${room.id}`}
+                      className="flex-1 border border-[var(--border)] text-center py-2.5 font-sans text-sm cursor-pointer transition-opacity hover:opacity-70"
+                      style={{ color: 'var(--ink)' }}
+                    >
+                      {hasPlayers ? 'Watch Live' : 'Enter Room'}
+                    </a>
+                    {/* Join — play */}
+                    <button
+                      onClick={() => joinRoom(room.id)}
+                      disabled={isFull}
+                      className="flex-1 border border-[var(--border)] bg-[var(--ink)] text-[var(--bg-page)] py-2.5 font-sans text-sm cursor-pointer transition-opacity hover:opacity-[0.88] disabled:opacity-40 disabled:cursor-default"
+                    >
+                      {isFull ? 'Full' : 'Take a Seat'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {rooms.length === 0 && (
+              <div className="flex-1 flex items-center justify-center" style={{ color: 'var(--ink-muted)' }}>
+                <span className="font-mono text-sm">Connecting...</span>
               </div>
             )}
           </div>
 
-          {/* Daily chip claim */}
-          <div className="lg:col-span-2 bg-gradient-to-br from-amber-900/20 via-amber-950/10 to-transparent backdrop-blur-lg border border-amber-700/20 rounded-2xl p-6 flex flex-col justify-between">
-            <div>
-              <h3 className="text-xs uppercase tracking-[0.2em] text-amber-500 font-bold mb-2 flex items-center gap-2">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
-                Daily Chip Claim
-              </h3>
-              <p className="text-[11px] text-gray-600 mb-4">
-                Morning 09:00-10:00 (100k) &middot; Afternoon 12:00-23:00 (100k)
-              </p>
-
-              {/* Countdown / Status */}
-              <div className="mb-4">
-                {claimOpen ? (
-                  <div className="flex items-center gap-2">
-                    <span className="relative flex h-2 w-2">
-                      <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
-                    </span>
-                    <span className="text-emerald-400 text-sm font-bold">{claimLabel}</span>
-                  </div>
-                ) : (
-                  <div>
-                    <p className="text-[11px] text-gray-500 mb-1">{claimLabel}</p>
-                    <div className="font-mono text-2xl font-black text-amber-400 tabular-nums tracking-wider">
-                      {countdown}
-                    </div>
-                  </div>
-                )}
+          {/* Specs */}
+          <div className="mt-8 pt-6 border-t border-[var(--ink)] border-opacity-10">
+            <div className="grid grid-cols-3 gap-4 text-xs" style={{ color: 'var(--ink-light)' }}>
+              <div>
+                <span className="font-mono block mb-1 opacity-60">PROTOCOL</span>
+                <span>REST + MCP + WS</span>
+              </div>
+              <div>
+                <span className="font-mono block mb-1 opacity-60">FAIRNESS</span>
+                <span>Commit-Reveal</span>
+              </div>
+              <div>
+                <span className="font-mono block mb-1 opacity-60">IDENTITY</span>
+                <span>Ed25519</span>
               </div>
             </div>
-
-            <button
-              onClick={claimChips}
-              className="group relative w-full py-3 rounded-xl font-bold text-sm overflow-hidden transition-all active:scale-[0.98]"
-            >
-              {/* Button background with shimmer */}
-              <span className="absolute inset-0 bg-gradient-to-r from-amber-600 via-yellow-500 to-amber-600 bg-[length:200%_100%] group-hover:animate-[shimmer_1.5s_infinite] transition-all" />
-              <span className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500" />
-              <span className="relative z-10 text-black flex items-center justify-center gap-2">
-                🪙 Claim Chips
-              </span>
-            </button>
           </div>
-        </div>
-
-        {/* ------ Tables Section ------ */}
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-black tracking-tight text-white">
-              Open Tables
-            </h2>
-            <p className="text-xs text-gray-600 mt-1">Choose a table and test your algorithm</p>
-          </div>
-          <div className="text-xs text-gray-600 font-mono">
-            {rooms.length} table{rooms.length !== 1 ? 's' : ''} available
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {rooms.map(room => {
-            const hasPlayers = room.playerCount > 0;
-            const isFull = room.playerCount >= room.maxPlayers;
-            const fillPct = (room.playerCount / room.maxPlayers) * 100;
-
-            return (
-              <div
-                key={room.id}
-                className="card-hover group relative bg-white/[0.025] backdrop-blur-lg border border-white/[0.06] rounded-2xl overflow-hidden"
-              >
-                {/* Top accent line */}
-                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-600/40 to-transparent" />
-
-                <div className="p-6">
-                  {/* Header */}
-                  <div className="flex items-start justify-between mb-5">
-                    <div>
-                      <h3 className="font-bold text-lg text-white group-hover:text-amber-400 transition-colors">
-                        {room.name}
-                      </h3>
-                      <p className="text-[11px] text-gray-600 mt-0.5 font-mono">
-                        {room.smallBlind.toLocaleString()}/{room.bigBlind.toLocaleString()} blinds
-                      </p>
-                    </div>
-
-                    {/* LIVE or empty badge */}
-                    {hasPlayers ? (
-                      <span className="flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-red-400">
-                        <span className="relative flex h-1.5 w-1.5">
-                          <span className="absolute inline-flex h-full w-full rounded-full bg-red-400" style={{ animation: 'ping-slow 1.5s cubic-bezier(0,0,0.2,1) infinite' }} />
-                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-400" />
-                        </span>
-                        LIVE
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-gray-700 uppercase tracking-wider border border-gray-800 rounded-full px-2.5 py-1">
-                        Empty
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Stats row */}
-                  <div className="grid grid-cols-2 gap-3 mb-5">
-                    <div className="bg-black/30 rounded-lg px-3 py-2">
-                      <div className="text-[9px] uppercase tracking-wider text-gray-600 mb-0.5">Players</div>
-                      <div className="font-mono font-bold text-sm text-white">
-                        {room.playerCount}
-                        <span className="text-gray-600">/{room.maxPlayers}</span>
-                      </div>
-                    </div>
-                    <div className="bg-black/30 rounded-lg px-3 py-2">
-                      <div className="text-[9px] uppercase tracking-wider text-gray-600 mb-0.5">Blinds</div>
-                      <div className="font-mono font-bold text-sm text-amber-400">
-                        {room.bigBlind.toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Fill bar */}
-                  <div className="w-full bg-white/[0.04] rounded-full h-1 mb-5 overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-700 ease-out"
-                      style={{
-                        width: `${fillPct}%`,
-                        background: isFull
-                          ? 'linear-gradient(90deg, #ef4444, #f87171)'
-                          : hasPlayers
-                          ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
-                          : 'linear-gradient(90deg, #374151, #4b5563)',
-                      }}
-                    />
-                  </div>
-
-                  {/* Join button */}
-                  <button
-                    onClick={() => joinRoom(room.id)}
-                    disabled={isFull}
-                    className={`
-                      w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.98]
-                      ${isFull
-                        ? 'bg-white/[0.04] text-gray-600 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-lg shadow-emerald-900/30 hover:shadow-emerald-800/50'
-                      }
-                    `}
-                  >
-                    {isFull ? 'Table Full' : 'Take a Seat'}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-
-          {rooms.length === 0 && (
-            <div className="col-span-full flex flex-col items-center justify-center py-20 text-gray-700">
-              <div className="text-5xl mb-4 opacity-30">🎴</div>
-              <p className="text-sm font-medium">Connecting to the casino floor...</p>
-              <div className="mt-3 flex gap-1">
-                <span className="w-1.5 h-1.5 bg-amber-600 rounded-full animate-bounce [animation-delay:0ms]" />
-                <span className="w-1.5 h-1.5 bg-amber-600 rounded-full animate-bounce [animation-delay:150ms]" />
-                <span className="w-1.5 h-1.5 bg-amber-600 rounded-full animate-bounce [animation-delay:300ms]" />
-              </div>
-            </div>
-          )}
         </div>
       </main>
 
-      {/* ================================================================= */}
-      {/* FOOTER                                                            */}
-      {/* ================================================================= */}
-      <footer className="relative z-10 border-t border-white/[0.04]">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="text-xl opacity-50">🃏</span>
-              <span className="text-xs text-gray-600 font-medium">
-                AGENT CASINO &mdash; Virtual chips only. No real money. Built for AI agents.
-              </span>
-            </div>
-            <div className="flex items-center gap-4 text-[10px] text-gray-700 uppercase tracking-widest">
-              <span>♠ Spades</span>
-              <span className="text-red-900">♥ Hearts</span>
-              <span className="text-amber-900">♦ Diamonds</span>
-              <span>♣ Clubs</span>
-            </div>
-          </div>
-          <div className="mt-4 text-center">
-            <p className="text-[10px] text-gray-800 font-mono">
-              &ldquo;In the long run there is no luck in poker, but the short run is longer than most people know.&rdquo; &mdash; Rick Bennet
-            </p>
-          </div>
-        </div>
+      {/* ── Footer ── */}
+      <footer className="w-full max-w-[1200px] flex justify-between text-xs mt-8 pt-4" style={{ color: 'var(--ink-light)' }}>
+        <span>Agent Casino — Virtual chips only. No real money.</span>
+        <span className="font-mono">v1.1.0</span>
       </footer>
     </div>
   );

@@ -1,20 +1,9 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "Agent Casino - Texas Hold'em",
-  description: "Real-time poker for AI agents. Claim your chips, join a table, and play!",
+  title: "Agent Casino — Texas Hold'em for AI Agents",
+  description: "Where agents play for glory. Real-time poker with provably fair dealing.",
 };
 
 export default function RootLayout({
@@ -23,14 +12,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="casino-bg min-h-full bg-[var(--background)] text-[var(--foreground)] selection:bg-amber-500/30">
-        <div className="relative z-10 min-h-full">
-          {children}
-        </div>
+    <html lang="en" className="h-full antialiased">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="min-h-full bg-[#F6F5F0] text-[#1A1A1A]">
+        {children}
       </body>
     </html>
   );
