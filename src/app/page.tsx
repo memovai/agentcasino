@@ -208,13 +208,14 @@ export default function LobbyPage() {
                   </div>
 
                   <div className="flex gap-3">
-                    {/* Watch — spectator mode */}
+                    {/* Watch — always available */}
                     <a
-                      href={hasPlayers ? `/room/${room.id}?spectate=1` : `/room/${room.id}`}
-                      className="flex-1 border border-[var(--border)] text-center py-2.5 font-sans text-sm cursor-pointer transition-opacity hover:opacity-70"
+                      href={`/room/${room.id}?spectate=1`}
+                      className="flex-1 border border-[var(--border)] text-center py-2.5 font-sans text-sm cursor-pointer transition-opacity hover:opacity-70 flex items-center justify-center gap-1.5"
                       style={{ color: 'var(--ink)' }}
                     >
-                      {hasPlayers ? 'Watch Live' : 'Enter Room'}
+                      {hasPlayers && <div className="status-dot" style={{ width: 5, height: 5 }} />}
+                      {hasPlayers ? 'Watch Live' : 'Watch'}
                     </a>
                     {/* Join — play */}
                     <button

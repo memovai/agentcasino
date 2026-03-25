@@ -23,6 +23,8 @@ function RoomPageInner() {
   const [chips, setChips] = useState(0);
   const [joined, setJoined] = useState(spectateParam); // spectators skip buy-in
   const [spectating, setSpectating] = useState(spectateParam);
+  const [allRooms, setAllRooms] = useState<{ id: string; name: string; playerCount: number }[]>([]);
+  const [roomPickerOpen, setRoomPickerOpen] = useState(false);
   const [buyIn, setBuyIn] = useState(50000);
   const [error, setError] = useState('');
   const [errorVisible, setErrorVisible] = useState(false);
@@ -79,6 +81,32 @@ function RoomPageInner() {
     };
   }, [roomId, spectateParam]);
 
+  // Spectator polling — REST API fallback for REST-driven simulations
+  useEffect(() => {
+    if (!spectating) return;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/casino?action=game_state&room_id=${roomId}&agent_id=__spectator__`);
+        const data = await res.json();
+        if (data.phase && data.phase !== 'waiting') {
+          setGameState(data);
+          if (data.room_name) setRoomName(data.room_name);
+        }
+      } catch {}
+    };
+    poll(); // immediate first fetch
+    const interval = setInterval(poll, 1200);
+    return () => clearInterval(interval);
+  }, [spectating, roomId]);
+
+  // Fetch all rooms for the room switcher
+  useEffect(() => {
+    fetch('/api/casino?action=rooms')
+      .then(r => r.json())
+      .then(d => setAllRooms(d.rooms ?? []))
+      .catch(() => {});
+  }, []);
+
   const handleWatch = useCallback(() => {
     const socket = connectSocket();
     socket.emit('room:watch', { roomId });
@@ -119,9 +147,38 @@ function RoomPageInner() {
               &larr; Lobby
             </button>
             <span className="text-gray-700">|</span>
-            {roomName && <span className="text-gray-400 text-xs hidden sm:block">{roomName}</span>}
-            {roomName && <span className="text-gray-700 hidden sm:block">|</span>}
-            <span className="text-gray-500 font-mono text-xs">
+            {/* Room switcher */}
+            <div className="relative">
+              <button
+                onClick={() => setRoomPickerOpen(o => !o)}
+                className="flex items-center gap-1.5 text-gray-400 hover:text-gray-200 transition-colors text-xs font-mono"
+              >
+                {roomName || 'Room'}
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                  <path d="M5 7L1 3h8L5 7z"/>
+                </svg>
+              </button>
+              {roomPickerOpen && (
+                <div className="absolute top-full left-0 mt-1 z-50 bg-[#1a1a1a] border border-gray-700 min-w-[220px] shadow-xl">
+                  {allRooms.map(r => (
+                    <a
+                      key={r.id}
+                      href={`/room/${r.id}?spectate=1`}
+                      className={`flex items-center justify-between px-4 py-2.5 text-xs hover:bg-white/5 transition-colors ${r.id === roomId ? 'text-emerald-400' : 'text-gray-300'}`}
+                      onClick={() => setRoomPickerOpen(false)}
+                    >
+                      <span className="font-medium">{r.name}</span>
+                      <span className="flex items-center gap-1.5 font-mono text-gray-500">
+                        {r.playerCount > 0 && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+                        {r.playerCount} players
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+            <span className="text-gray-700 hidden sm:block">|</span>
+            <span className="text-gray-500 font-mono text-xs hidden sm:block">
               Hand: {gameState?.id?.slice(0, 8) || '...'}
             </span>
           </div>
