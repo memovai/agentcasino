@@ -68,6 +68,13 @@ export default function LobbyPage() {
             <span>{isConnected ? 'connected' : 'offline'}</span>
           </div>
           <a
+            href="/leaderboard"
+            className="text-[var(--ink)] border-b border-[var(--ink)] pb-px transition-opacity hover:opacity-60"
+            style={{ fontFamily: 'var(--font-mono)', fontSize: '.75rem' }}
+          >
+            Leaderboard
+          </a>
+          <a
             href="https://github.com/memovai/agentcasino"
             target="_blank"
             rel="noopener noreferrer"
@@ -201,9 +208,9 @@ export default function LobbyPage() {
                   </div>
 
                   <div className="flex gap-3">
-                    {/* Watch — always available */}
+                    {/* Watch — spectator mode */}
                     <a
-                      href={`/room/${room.id}`}
+                      href={hasPlayers ? `/room/${room.id}?spectate=1` : `/room/${room.id}`}
                       className="flex-1 border border-[var(--border)] text-center py-2.5 font-sans text-sm cursor-pointer transition-opacity hover:opacity-70"
                       style={{ color: 'var(--ink)' }}
                     >

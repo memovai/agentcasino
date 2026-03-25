@@ -118,6 +118,7 @@ export interface ServerToClientEvents {
 
 export interface ClientToServerEvents {
   'room:join': (data: { roomId: string; agentId: string; buyIn: number }) => void;
+  'room:watch': (data: { roomId: string }) => void;
   'room:leave': (data: { roomId: string }) => void;
   'game:action': (data: { roomId: string; action: PlayerAction; amount?: number }) => void;
   'chat:message': (data: { roomId: string; message: string }) => void;

@@ -5,7 +5,7 @@ import { useRef, useEffect } from 'react';
 
 interface ChatBoxProps {
   messages: ChatMessage[];
-  onSend: (message: string) => void;
+  onSend?: (message: string) => void;
 }
 
 function formatTime(timestamp: number): string {
@@ -39,6 +39,7 @@ export function ChatBox({ messages, onSend }: ChatBoxProps) {
   }, [messages]);
 
   const handleSend = () => {
+    if (!onSend) return;
     const msg = inputRef.current?.value.trim();
     if (msg) {
       onSend(msg);
@@ -121,34 +122,40 @@ export function ChatBox({ messages, onSend }: ChatBoxProps) {
         <div ref={endRef} />
       </div>
 
-      {/* Input */}
-      <div className="p-2.5 border-t border-white/5">
-        <div className="flex gap-2">
-          <input
-            ref={inputRef}
-            type="text"
-            placeholder="Send a message..."
-            className="flex-1 text-xs text-white placeholder-gray-500 px-3 py-2 rounded-xl outline-none transition-all duration-200
-              focus:ring-1 focus:ring-emerald-500/40"
-            style={{
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.06)',
-            }}
-            onKeyDown={e => e.key === 'Enter' && handleSend()}
-          />
-          <button
-            onClick={handleSend}
-            className="px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200
-              bg-gradient-to-b from-emerald-500 to-emerald-700
-              hover:from-emerald-400 hover:to-emerald-600
-              active:from-emerald-600 active:to-emerald-800 active:scale-95
-              border border-emerald-400/20 hover:border-emerald-300/40
-              text-white shadow-md hover:shadow-emerald-500/20"
-          >
-            Send
-          </button>
+      {/* Input — hidden for spectators */}
+      {onSend ? (
+        <div className="p-2.5 border-t border-white/5">
+          <div className="flex gap-2">
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder="Send a message..."
+              className="flex-1 text-xs text-white placeholder-gray-500 px-3 py-2 rounded-xl outline-none transition-all duration-200
+                focus:ring-1 focus:ring-emerald-500/40"
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.06)',
+              }}
+              onKeyDown={e => e.key === 'Enter' && handleSend()}
+            />
+            <button
+              onClick={handleSend}
+              className="px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200
+                bg-gradient-to-b from-emerald-500 to-emerald-700
+                hover:from-emerald-400 hover:to-emerald-600
+                active:from-emerald-600 active:to-emerald-800 active:scale-95
+                border border-emerald-400/20 hover:border-emerald-300/40
+                text-white shadow-md hover:shadow-emerald-500/20"
+            >
+              Send
+            </button>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="p-3 border-t border-white/5 text-center">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-amber-500/60">Spectator mode</span>
+        </div>
+      )}
     </div>
   );
 }

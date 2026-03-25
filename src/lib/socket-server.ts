@@ -44,6 +44,15 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
     });
 
+    socket.on('room:watch', ({ roomId }) => {
+      socket.join(roomId);
+      // Send current spectator state immediately
+      const spectatorState = getClientGameState(roomId, '__spectator__');
+      if (spectatorState) {
+        socket.emit('game:state', spectatorState);
+      }
+    });
+
     socket.on('room:join', ({ roomId, agentId, buyIn }) => {
       // Register agent with socket
       const agent = getOrCreateAgent(agentId, agentId);

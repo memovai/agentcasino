@@ -1,26 +1,32 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState, useCallback, Suspense } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { connectSocket, disconnectSocket } from '@/lib/socket-client';
-import { ClientGameState, ChatMessage, PlayerAction, RoomInfo } from '@/lib/types';
+import { ClientGameState, ChatMessage, PlayerAction } from '@/lib/types';
 import { PokerTable } from '@/components/PokerTable';
 import { ChatBox } from '@/components/ChatBox';
 
-export default function RoomPage() {
+function RoomPageInner() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const roomId = params.id as string;
+
+  // spectate=1 URL param → pure observer mode
+  const spectateParam = searchParams.get('spectate') === '1';
 
   const [gameState, setGameState] = useState<ClientGameState | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [agentId, setAgentId] = useState('');
   const [agentName, setAgentName] = useState('');
   const [chips, setChips] = useState(0);
-  const [joined, setJoined] = useState(false);
+  const [joined, setJoined] = useState(spectateParam); // spectators skip buy-in
+  const [spectating, setSpectating] = useState(spectateParam);
   const [buyIn, setBuyIn] = useState(50000);
   const [error, setError] = useState('');
   const [errorVisible, setErrorVisible] = useState(false);
+  const [roomName, setRoomName] = useState('');
 
   useEffect(() => {
     const id = localStorage.getItem('agent_id') || 'agent_' + Math.random().toString(36).slice(2, 10);
@@ -32,7 +38,16 @@ export default function RoomPage() {
     const socket = connectSocket();
 
     socket.on('connect', () => {
-      socket.emit('chips:claim', { agentId: id });
+      if (spectateParam) {
+        // Join as spectator immediately
+        socket.emit('room:watch', { roomId });
+      } else {
+        socket.emit('chips:claim', { agentId: id });
+      }
+    });
+
+    socket.on('room:state', (room: any) => {
+      if (room?.name) setRoomName(room.name);
     });
 
     socket.on('game:state', (state) => {
@@ -47,10 +62,6 @@ export default function RoomPage() {
       setChips(balance);
     });
 
-    socket.on('game:winners', (winners) => {
-      // Winners are shown via game state
-    });
-
     socket.on('error', (msg) => {
       setError(msg);
       setErrorVisible(true);
@@ -61,16 +72,24 @@ export default function RoomPage() {
     });
 
     return () => {
-      if (joined) {
+      if (joined && !spectating) {
         socket.emit('room:leave', { roomId });
       }
       disconnectSocket();
     };
+  }, [roomId, spectateParam]);
+
+  const handleWatch = useCallback(() => {
+    const socket = connectSocket();
+    socket.emit('room:watch', { roomId });
+    setSpectating(true);
+    setJoined(true);
   }, [roomId]);
 
   const handleJoin = useCallback(() => {
     const socket = connectSocket();
     socket.emit('room:join', { roomId, agentId, buyIn });
+    setSpectating(false);
     setJoined(true);
   }, [roomId, agentId, buyIn]);
 
@@ -86,9 +105,9 @@ export default function RoomPage() {
 
   const handleLeave = useCallback(() => {
     const socket = connectSocket();
-    socket.emit('room:leave', { roomId });
+    if (!spectating) socket.emit('room:leave', { roomId });
     router.push('/');
-  }, [roomId, router]);
+  }, [roomId, router, spectating]);
 
   return (
     <div className="min-h-screen game-room">
@@ -100,13 +119,23 @@ export default function RoomPage() {
               &larr; Lobby
             </button>
             <span className="text-gray-700">|</span>
+            {roomName && <span className="text-gray-400 text-xs hidden sm:block">{roomName}</span>}
+            {roomName && <span className="text-gray-700 hidden sm:block">|</span>}
             <span className="text-gray-500 font-mono text-xs">
               Hand: {gameState?.id?.slice(0, 8) || '...'}
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-xs text-gray-500">{agentName}</span>
-            <span className="font-mono text-xs text-emerald-400">{chips.toLocaleString()}</span>
+            {spectating ? (
+              <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400 border border-amber-700 px-2 py-0.5">
+                Spectating
+              </span>
+            ) : (
+              <>
+                <span className="text-xs text-gray-500">{agentName}</span>
+                <span className="font-mono text-xs text-emerald-400">{chips.toLocaleString()}</span>
+              </>
+            )}
             {gameState && (
               <span className="text-[10px] font-semibold text-emerald-400 border border-emerald-700 px-2 py-0.5 uppercase tracking-wider">
                 {gameState.phase === 'preflop' ? 'PRE-FLOP' : gameState.phase.toUpperCase()}
@@ -128,12 +157,30 @@ export default function RoomPage() {
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         {!joined ? (
-          /* ── Buy-In ── */
+          /* ── Lobby: Watch or Join ── */
           <div className="flex items-center justify-center min-h-[75vh]">
             <div className="w-full max-w-md bg-[#1a1a1a] border border-gray-700 p-10">
-              <h2 className="text-2xl font-serif italic text-white mb-2">Take Your Seat</h2>
-              <p className="text-sm text-gray-500 mb-8">Choose your buy-in amount</p>
+              <h2 className="text-2xl font-serif italic text-white mb-2">
+                {roomName || 'Poker Table'}
+              </h2>
+              <p className="text-sm text-gray-500 mb-8">Watch the action or take a seat</p>
 
+              {/* Watch button */}
+              <button
+                onClick={handleWatch}
+                className="w-full border border-gray-600 text-gray-300 py-3 font-sans text-sm cursor-pointer transition-opacity hover:opacity-80 mb-4"
+              >
+                Watch Live
+              </button>
+
+              {/* Divider */}
+              <div className="flex items-center gap-3 my-6">
+                <div className="flex-1 h-px bg-gray-800" />
+                <span className="text-gray-600 text-xs font-mono">or play</span>
+                <div className="flex-1 h-px bg-gray-800" />
+              </div>
+
+              {/* Buy-in */}
               <div className="mb-8">
                 <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-gray-500 block mb-3">Buy-in</label>
                 <input
@@ -149,7 +196,7 @@ export default function RoomPage() {
                 onClick={handleJoin} disabled={chips < buyIn}
                 className="w-full border border-white bg-white text-[#111] py-3 font-sans text-sm font-medium cursor-pointer transition-opacity hover:opacity-88 disabled:opacity-30 disabled:cursor-default"
               >
-                {chips < buyIn ? 'Insufficient Chips' : 'Enter the Game'}
+                {chips < buyIn ? 'Insufficient Chips' : 'Take a Seat'}
               </button>
             </div>
           </div>
@@ -158,22 +205,34 @@ export default function RoomPage() {
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">
             <div className="pt-4 pb-24">
               {gameState ? (
-                <PokerTable gameState={gameState} myAgentId={agentId} onAction={handleAction} />
+                <PokerTable
+                  gameState={gameState}
+                  myAgentId={spectating ? '__spectator__' : agentId}
+                  onAction={spectating ? () => {} : handleAction}
+                />
               ) : (
                 <div className="flex items-center justify-center h-96 text-center">
                   <div>
-                    <p className="text-gray-400 mb-1">Waiting for players...</p>
+                    <p className="text-gray-400 mb-1">Waiting for players…</p>
                     <p className="text-xs text-gray-600">Need at least 2 to start</p>
                   </div>
                 </div>
               )}
             </div>
             <div className="h-[600px] lg:h-[calc(100vh-6rem)]">
-              <ChatBox messages={messages} onSend={handleChat} />
+              <ChatBox messages={messages} onSend={spectating ? undefined : handleChat} />
             </div>
           </div>
         )}
       </main>
     </div>
+  );
+}
+
+export default function RoomPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen game-room flex items-center justify-center"><span className="text-gray-500 font-mono text-sm">Loading…</span></div>}>
+      <RoomPageInner />
+    </Suspense>
   );
 }
