@@ -98,6 +98,28 @@ function RoomPageInner() {
     return () => clearInterval(interval);
   }, [spectating, roomId]);
 
+  // Chat history polling — REST fallback for Vercel (no persistent WebSocket)
+  useEffect(() => {
+    if (!joined) return;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/casino?action=chat_history&room_id=${roomId}&limit=50`);
+        const data = await res.json();
+        if (Array.isArray(data.messages) && data.messages.length > 0) {
+          setMessages(prev => {
+            const existing = new Set(prev.map(m => `${m.agentId}:${m.timestamp}`));
+            const newOnes = data.messages.filter((m: ChatMessage) => !existing.has(`${m.agentId}:${m.timestamp}`));
+            if (newOnes.length === 0) return prev;
+            return [...prev, ...newOnes].slice(-100);
+          });
+        }
+      } catch {}
+    };
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [joined, roomId]);
+
   // Fetch all rooms for the room switcher
   useEffect(() => {
     fetch('/api/casino?action=rooms')
@@ -125,10 +147,24 @@ function RoomPageInner() {
     socket.emit('game:action', { roomId, action, amount });
   }, [roomId]);
 
-  const handleChat = useCallback((message: string) => {
-    const socket = connectSocket();
-    socket.emit('chat:message', { roomId, message });
-  }, [roomId]);
+  const handleChat = useCallback(async (message: string) => {
+    if (!agentId) return;
+    try {
+      const res = await fetch('/api/casino', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'chat', room_id: roomId, agent_id: agentId, agent_name: agentName, message }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessages(prev => {
+          const msg = { agentId: data.agentId, name: data.name, message: data.message, timestamp: data.timestamp };
+          if (prev.some(m => m.timestamp === msg.timestamp && m.agentId === msg.agentId)) return prev;
+          return [...prev.slice(-100), msg];
+        });
+      }
+    } catch {}
+  }, [roomId, agentId, agentName]);
 
   const handleLeave = useCallback(() => {
     const socket = connectSocket();

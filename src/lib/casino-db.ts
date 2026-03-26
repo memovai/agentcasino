@@ -185,6 +185,24 @@ export function saveMessage(roomId: string, agentId: string, name: string, messa
   });
 }
 
+export async function getRecentMessages(roomId: string, limit = 50): Promise<{
+  agentId: string; name: string; message: string; timestamp: number;
+}[]> {
+  const { data, error } = await supabase
+    .from('casino_chat_messages')
+    .select('agent_id, agent_name, message, created_at')
+    .eq('room_id', roomId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) { console.error('[casino-db] getRecentMessages:', error.message); return []; }
+  return (data ?? []).reverse().map(row => ({
+    agentId:   row.agent_id,
+    name:      row.agent_name,
+    message:   row.message,
+    timestamp: new Date(row.created_at).getTime(),
+  }));
+}
+
 // ── Leaderboard ──────────────────────────────────────────────────────────────
 
 export async function getLeaderboard(limit = 20) {

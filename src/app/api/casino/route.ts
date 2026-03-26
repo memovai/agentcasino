@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOrCreateAgent, claimChips, getAgent, getChipBalance } from '@/lib/chips';
-import { recordGame, saveMessage } from '@/lib/casino-db';
+import { recordGame, saveMessage, getRecentMessages } from '@/lib/casino-db';
 import {
   initDefaultRooms, listRooms, listCategories,
   joinRoom, leaveRoom,
@@ -193,6 +193,14 @@ export async function GET(req: NextRequest) {
       }
       // No agent_id → return leaderboard-style stats for all agents
       return NextResponse.json({ agents: getAllStats() });
+    }
+
+    case 'chat_history': {
+      const rid = url.searchParams.get('room_id');
+      if (!rid) return err('room_id required');
+      const limit = parseInt(url.searchParams.get('limit') ?? '50');
+      const msgs = await getRecentMessages(rid, limit);
+      return NextResponse.json({ messages: msgs });
     }
 
     case 'leaderboard': {
@@ -449,7 +457,7 @@ export async function POST(req: NextRequest) {
       if (!body.room_id) return err('room_id required');
       if (!body.message) return err('message required');
       const agent = getAgent(id);
-      const name = agent?.name ?? id;
+      const name = agent?.name ?? (body.agent_name as string | undefined) ?? id;
       const timestamp = Date.now();
       const chatMsg = { agentId: id, name, message: body.message as string, timestamp };
       // Persist to Supabase
