@@ -59,6 +59,14 @@ if (!globalAny.__casino_rooms) {
 }
 const rooms: Map<string, ExtendedRoom> = globalAny.__casino_rooms;
 
+// ─── Action timeout store (global singleton, survives hot reloads) ────────────
+
+const globalAny2 = globalThis as any;
+if (!globalAny2.__casino_timeouts) {
+  globalAny2.__casino_timeouts = new Map<string, NodeJS.Timeout>();
+}
+const actionTimeouts: Map<string, NodeJS.Timeout> = globalAny2.__casino_timeouts;
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 function createFixedTable(categoryId: string, tableNumber: number): ExtendedRoom {
@@ -183,6 +191,64 @@ export function leaveRoom(roomId: string, agentId: string): void {
   }
 
   room.spectators = room.spectators.filter(id => id !== agentId);
+
+  // Cancel any pending timeout if there aren't enough players left
+  if (!room.game || room.game.players.length < 2) {
+    clearActionTimeout(roomId);
+  }
+}
+
+// ─── Action timeout ───────────────────────────────────────────────────────────
+
+export function clearActionTimeout(roomId: string): void {
+  const existing = actionTimeouts.get(roomId);
+  if (existing !== undefined) {
+    clearTimeout(existing);
+    actionTimeouts.delete(roomId);
+  }
+}
+
+export function scheduleActionTimeout(roomId: string): void {
+  const room = rooms.get(roomId);
+  if (!room || !room.game) {
+    clearActionTimeout(roomId);
+    return;
+  }
+
+  const game = room.game;
+
+  if (game.phase === 'waiting' || game.phase === 'showdown') {
+    clearActionTimeout(roomId);
+    return;
+  }
+
+  const currentPlayer = game.players[game.currentPlayerIndex];
+  if (!currentPlayer) {
+    clearActionTimeout(roomId);
+    return;
+  }
+
+  // Clear any existing timeout before setting a new one
+  clearActionTimeout(roomId);
+
+  const timeout = setTimeout(() => {
+    actionTimeouts.delete(roomId);
+    console.log(`[auto-fold] ${currentPlayer.name} timed out in room ${roomId}`);
+    handleAction(roomId, currentPlayer.agentId, 'fold');
+    // Attempt to broadcast updated state via socket server if available
+    try {
+      const socketServer = require('./socket-server');
+      if (typeof socketServer.broadcastRoomState === 'function') {
+        socketServer.broadcastRoomState(roomId);
+      }
+    } catch {
+      // socket-server not available, skip broadcast
+    }
+    // Schedule the next player's timeout
+    scheduleActionTimeout(roomId);
+  }, 30_000);
+
+  actionTimeouts.set(roomId, timeout);
 }
 
 // ─── Game actions ─────────────────────────────────────────────────────────────

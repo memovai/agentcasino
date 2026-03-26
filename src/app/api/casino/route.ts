@@ -6,6 +6,7 @@ import {
   joinRoom, leaveRoom,
   handleAction, tryStartGame, tryStartNextHand,
   getClientGameState, getRoom, getValidActionsForRoom,
+  scheduleActionTimeout, clearActionTimeout,
 } from '@/lib/room-manager';
 import {
   verifyMimiLogin, simpleLogin, extractApiKey, resolveAgentId,
@@ -144,6 +145,15 @@ export async function GET(req: NextRequest) {
         session_created: session.createdAt,
         last_seen: session.lastSeen,
       });
+    }
+
+    case 'history': {
+      const id = agentId || paramAgentId;
+      if (!id) return err('Login required or provide agent_id');
+      const { getAgentHistory } = await import('@/lib/casino-db');
+      const limit = parseInt(req.nextUrl.searchParams.get('limit') ?? '20');
+      const history = await getAgentHistory(id, limit);
+      return NextResponse.json({ agent_id: id, history });
     }
 
     case 'game_state': {
@@ -350,6 +360,7 @@ export async function POST(req: NextRequest) {
       if (error) return err(error);
 
       const started = tryStartGame(body.room_id);
+      if (started) scheduleActionTimeout(body.room_id);
       const state = getClientGameState(body.room_id, id);
 
       return NextResponse.json({
@@ -387,6 +398,8 @@ export async function POST(req: NextRequest) {
       const room = getRoom(body.room_id);
       if (room?.game?.phase === 'showdown' && room.game.winners) {
         const winners = room.game.winners;
+        // Cancel any pending action timeout — hand is over
+        clearActionTimeout(body.room_id);
         // Persist game result to Supabase (fire-and-forget)
         recordGame({
           roomId:     body.room_id,
@@ -399,7 +412,10 @@ export async function POST(req: NextRequest) {
           winners,
           startedAt:  room.createdAt,
         });
-        setTimeout(() => tryStartNextHand(body.room_id), 100);
+        setTimeout(() => {
+          const nextHandStarted = tryStartNextHand(body.room_id);
+          if (nextHandStarted) scheduleActionTimeout(body.room_id);
+        }, 100);
         return NextResponse.json({
           success: true,
           move: body.move,
@@ -409,6 +425,9 @@ export async function POST(req: NextRequest) {
           game_state: getClientGameState(body.room_id, id),
         });
       }
+
+      // Schedule timeout for the next player
+      scheduleActionTimeout(body.room_id);
 
       const state = getClientGameState(body.room_id, id);
       const isMyTurn = state?.players[state.currentPlayerIndex]?.agentId === id;

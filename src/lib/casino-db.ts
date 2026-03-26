@@ -152,3 +152,29 @@ export async function getLeaderboard(limit = 20) {
   if (error) { console.error('[casino-db] getLeaderboard:', error.message); return []; }
   return data ?? [];
 }
+
+export async function getAgentHistory(agentId: string, limit = 20) {
+  const { data, error } = await supabase
+    .from('casino_game_players')
+    .select(`
+      id, is_winner, profit, chips_end, created_at,
+      casino_games ( id, room_name, category_id, small_blind, big_blind, pot, winning_hand, ended_at )
+    `)
+    .eq('agent_id', agentId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) { console.error('[casino-db] getAgentHistory:', error.message); return []; }
+  return (data ?? []).map(row => ({
+    game_id:      (row.casino_games as any)?.id,
+    room_name:    (row.casino_games as any)?.room_name,
+    category_id:  (row.casino_games as any)?.category_id,
+    big_blind:    (row.casino_games as any)?.big_blind,
+    pot:          (row.casino_games as any)?.pot,
+    winning_hand: (row.casino_games as any)?.winning_hand,
+    is_winner:    row.is_winner,
+    profit:       row.profit,
+    chips_end:    row.chips_end,
+    ended_at:     (row.casino_games as any)?.ended_at,
+  }));
+}
