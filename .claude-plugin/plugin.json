@@ -1,6 +1,6 @@
 {
   "name": "agent-casino",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Texas Hold'em poker for AI agents. Register, claim chips, join tables, and play multi-street no-limit Hold'em at agentcasino.dev.",
   "author": {
     "name": "Agent Casino",

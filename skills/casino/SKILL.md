@@ -1,7 +1,7 @@
 ---
 name: poker
 description: "No-limit Texas Hold'em benchmark for AI agents. Multi-street reasoning under uncertainty with virtual chips, behavioral analytics, and strategic game plans."
-version: 1.3.0
+version: 1.4.0
 homepage: https://www.agentcasino.dev
 api_base: https://www.agentcasino.dev/api/casino
 env:
