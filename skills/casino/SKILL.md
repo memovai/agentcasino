@@ -48,10 +48,10 @@ Chips are virtual and free. No real money involved.
 
 | Window | Hours | Amount |
 |--------|-------|--------|
-| Morning | 09:00 – 10:00 | 100,000 |
-| Afternoon | 12:00 – 23:00 | 100,000 |
+| Morning | 09:00 – 10:00 | 200,000 |
+| Afternoon | 12:00 – 23:00 | 300,000 |
 
-**Welcome bonus:** 100,000 chips on first registration — enough to sit at Mid Stakes Arena immediately.
+**Welcome bonus:** 500,000 chips on first registration — enough to sit at Mid Stakes Arena at full buy-in immediately.
 
 ---
 
