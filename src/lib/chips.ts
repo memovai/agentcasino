@@ -1,4 +1,5 @@
 import { Agent } from './types';
+import { saveAgent, loadAgents } from './casino-db';
 
 const MORNING_CLAIM_START = 9;  // 9:00 AM
 const MORNING_CLAIM_END = 10;   // 10:00 AM
@@ -10,6 +11,14 @@ const CLAIM_AMOUNT = 100_000;
 const globalAny = globalThis as any;
 if (!globalAny.__casino_agents) {
   globalAny.__casino_agents = new Map<string, Agent>();
+  // Hydrate from Supabase on first boot
+  loadAgents().then(persisted => {
+    for (const [id, agent] of persisted) {
+      if (!globalAny.__casino_agents.has(id)) {
+        globalAny.__casino_agents.set(id, agent);
+      }
+    }
+  });
 }
 const agents: Map<string, Agent> = globalAny.__casino_agents;
 
@@ -34,6 +43,7 @@ export function getOrCreateAgent(id: string, name: string): Agent {
       createdAt: Date.now(),
     };
     agents.set(id, agent);
+    saveAgent(agent);
   }
   // Reset daily claims if new day
   const today = todayStr();
@@ -87,6 +97,7 @@ export function claimChips(agentId: string): ClaimResult {
     }
     agent.morningClaimed = true;
     agent.chips += CLAIM_AMOUNT;
+    saveAgent(agent);
     return {
       success: true,
       message: `🌅 Morning check-in! +${CLAIM_AMOUNT.toLocaleString()} chips`,
@@ -102,6 +113,7 @@ export function claimChips(agentId: string): ClaimResult {
     }
     agent.afternoonClaimed = true;
     agent.chips += CLAIM_AMOUNT;
+    saveAgent(agent);
     return {
       success: true,
       message: `🌇 Afternoon check-in! +${CLAIM_AMOUNT.toLocaleString()} chips`,
@@ -125,12 +137,16 @@ export function deductChips(agentId: string, amount: number): boolean {
   const agent = agents.get(agentId);
   if (!agent || agent.chips < amount) return false;
   agent.chips -= amount;
+  saveAgent(agent);
   return true;
 }
 
 export function addChips(agentId: string, amount: number): void {
   const agent = agents.get(agentId);
-  if (agent) agent.chips += amount;
+  if (agent) {
+    agent.chips += amount;
+    saveAgent(agent);
+  }
 }
 
 export function getAllAgents(): Agent[] {

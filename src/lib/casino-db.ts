@@ -1,0 +1,154 @@
+/**
+ * casino-db.ts — Supabase persistence layer for Agent Casino
+ *
+ * All writes are fire-and-forget (non-blocking) so DB latency never affects gameplay.
+ */
+
+import { supabase } from './supabase';
+import { Agent, WinnerInfo, Player } from './types';
+
+// ── Agents ──────────────────────────────────────────────────────────────────
+
+/** Load all agent chip balances from DB on server startup */
+export async function loadAgents(): Promise<Map<string, Agent>> {
+  const { data, error } = await supabase
+    .from('casino_agents')
+    .select('*');
+
+  if (error) { console.error('[casino-db] loadAgents:', error.message); return new Map(); }
+
+  const map = new Map<string, Agent>();
+  for (const row of data ?? []) {
+    map.set(row.id, {
+      id: row.id,
+      name: row.name,
+      chips: row.chips,
+      morningClaimed:   false,
+      afternoonClaimed: false,
+      lastClaimDate:    '',
+      createdAt:        Date.now(),
+    });
+  }
+  return map;
+}
+
+/** Upsert agent after any chip change */
+export function saveAgent(agent: Agent): void {
+  supabase.from('casino_agents').upsert({
+    id:    agent.id,
+    name:  agent.name,
+    chips: agent.chips,
+  }, { onConflict: 'id' }).then(({ error }) => {
+    if (error) console.error('[casino-db] saveAgent:', error.message);
+  });
+}
+
+/** Increment wins + total_won when an agent wins a hand */
+export function recordAgentWin(agentId: string, amount: number): void {
+  supabase.rpc('casino_record_win', { p_agent_id: agentId, p_amount: amount })
+    .then(({ error }) => {
+      if (error) {
+        // Fallback: manual increment
+        supabase.from('casino_agents')
+          .update({ games_won: supabase.rpc as any })
+          .eq('id', agentId);
+      }
+    });
+}
+
+// ── Games ────────────────────────────────────────────────────────────────────
+
+export interface GameRecord {
+  roomId:      string;
+  roomName:    string;
+  categoryId:  string;
+  smallBlind:  number;
+  bigBlind:    number;
+  pot:         number;
+  players:     Player[];
+  winners:     WinnerInfo[];
+  startedAt:   number;
+}
+
+/** Record a completed game hand and per-player results */
+export function recordGame(record: GameRecord): void {
+  const winner = record.winners[0];
+
+  supabase.from('casino_games').insert({
+    room_id:      record.roomId,
+    room_name:    record.roomName,
+    category_id:  record.categoryId,
+    small_blind:  record.smallBlind,
+    big_blind:    record.bigBlind,
+    pot:          record.pot,
+    player_count: record.players.length,
+    winner_id:    winner?.agentId ?? null,
+    winner_name:  winner?.name ?? null,
+    winning_hand: winner?.hand?.rank ?? null,
+    started_at:   new Date(record.startedAt).toISOString(),
+    ended_at:     new Date().toISOString(),
+  }).select('id').single().then(({ data, error }) => {
+    if (error) { console.error('[casino-db] recordGame:', error.message); return; }
+    if (!data) return;
+
+    const gameId = data.id;
+    const playerRows = record.players.map(p => {
+      const isWinner = record.winners.some(w => w.agentId === p.agentId);
+      const winAmount = record.winners.find(w => w.agentId === p.agentId)?.amount ?? 0;
+      return {
+        game_id:    gameId,
+        agent_id:   p.agentId,
+        agent_name: p.name,
+        buy_in:     0,  // buy-in tracking not in current model
+        chips_end:  p.chips,
+        profit:     isWinner ? winAmount : -p.currentBet,
+        is_winner:  isWinner,
+      };
+    });
+
+    supabase.from('casino_game_players').insert(playerRows).then(({ error: e }) => {
+      if (e) console.error('[casino-db] recordGamePlayers:', e.message);
+    });
+
+    // Bump games_played for each participant
+    const ids = record.players.map(p => p.agentId);
+    supabase.from('casino_agents')
+      .select('id, games_played')
+      .in('id', ids)
+      .then(({ data: agents }) => {
+        if (!agents) return;
+        for (const a of agents) {
+          supabase.from('casino_agents')
+            .update({ games_played: a.games_played + 1 })
+            .eq('id', a.id)
+            .then(() => {});
+        }
+      });
+  });
+}
+
+// ── Chat ─────────────────────────────────────────────────────────────────────
+
+export function saveMessage(roomId: string, agentId: string, name: string, message: string): void {
+  supabase.from('casino_chat_messages').insert({
+    room_id:    roomId,
+    agent_id:   agentId,
+    agent_name: name,
+    message,
+  }).then(({ error }) => {
+    if (error) console.error('[casino-db] saveMessage:', error.message);
+  });
+}
+
+// ── Leaderboard ──────────────────────────────────────────────────────────────
+
+export async function getLeaderboard(limit = 20) {
+  const { data, error } = await supabase
+    .from('casino_agents')
+    .select('id, name, chips, games_played, games_won, total_won')
+    .order('chips', { ascending: false })
+    .limit(limit);
+
+  if (error) { console.error('[casino-db] getLeaderboard:', error.message); return []; }
+  return data ?? [];
+}

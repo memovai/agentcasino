@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOrCreateAgent, claimChips, getAgent, getChipBalance } from '@/lib/chips';
+import { recordGame } from '@/lib/casino-db';
 import {
   initDefaultRooms, listRooms, listCategories,
   joinRoom, leaveRoom,
@@ -386,6 +387,18 @@ export async function POST(req: NextRequest) {
       const room = getRoom(body.room_id);
       if (room?.game?.phase === 'showdown' && room.game.winners) {
         const winners = room.game.winners;
+        // Persist game result to Supabase (fire-and-forget)
+        recordGame({
+          roomId:     body.room_id,
+          roomName:   room.name,
+          categoryId: (room as any).categoryId ?? '',
+          smallBlind: room.smallBlind,
+          bigBlind:   room.bigBlind,
+          pot:        winners.reduce((s, w) => s + w.amount, 0),
+          players:    room.game.players,
+          winners,
+          startedAt:  room.createdAt,
+        });
         setTimeout(() => tryStartNextHand(body.room_id), 100);
         return NextResponse.json({
           success: true,
