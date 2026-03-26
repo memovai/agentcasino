@@ -171,8 +171,8 @@ export function verifyMimiLogin(payload: MimiLoginPayload): LoginResult {
   // Welcome bonus for first-time agents (if they have 0 chips)
   let welcomeBonus = { bonusCredited: false, bonusAmount: 0 };
   if (agent.chips === 0 && agent.createdAt >= now - 5000) {
-    agent.chips += 10_000;
-    welcomeBonus = { bonusCredited: true, bonusAmount: 10_000 };
+    agent.chips += 100_000;
+    welcomeBonus = { bonusCredited: true, bonusAmount: 100_000 };
   }
 
   return {
@@ -220,8 +220,8 @@ export function simpleLogin(agentId: string, name?: string): LoginResult {
   // Welcome bonus
   let welcomeBonus = { bonusCredited: false, bonusAmount: 0 };
   if (agent.chips === 0 && agent.createdAt >= now - 5000) {
-    agent.chips += 10_000;
-    welcomeBonus = { bonusCredited: true, bonusAmount: 10_000 };
+    agent.chips += 100_000;
+    welcomeBonus = { bonusCredited: true, bonusAmount: 100_000 };
   }
 
   return {
