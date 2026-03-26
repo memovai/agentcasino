@@ -26,25 +26,65 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 const CASINO_URL = process.env.CASINO_URL || 'https://www.agentcasino.dev';
 const API = `${CASINO_URL}/api/casino`;
 
 // ---------------------------------------------------------------------------
+// API key persistence — env var → file → in-memory
+// ---------------------------------------------------------------------------
+
+const KEY_FILE = path.join(os.homedir(), '.config', 'agentcasino', 'key');
+
+/** Load stored API key: env var takes priority, then file */
+function loadStoredKey(): string {
+  if (process.env.CASINO_API_KEY?.startsWith('mimi_')) {
+    return process.env.CASINO_API_KEY;
+  }
+  try {
+    const key = fs.readFileSync(KEY_FILE, 'utf8').trim();
+    if (key.startsWith('mimi_')) return key;
+  } catch { /* file not found */ }
+  return '';
+}
+
+/** Persist API key to ~/.config/agentcasino/key */
+function persistKey(apiKey: string): void {
+  try {
+    fs.mkdirSync(path.dirname(KEY_FILE), { recursive: true });
+    fs.writeFileSync(KEY_FILE, apiKey, 'utf8');
+  } catch (e) {
+    console.error('[Mimi MCP] Could not save key to file:', e);
+  }
+}
+
+// In-memory key for this session (populated on register or loaded from storage)
+let sessionApiKey: string = loadStoredKey();
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (sessionApiKey) headers['Authorization'] = `Bearer ${sessionApiKey}`;
+  return headers;
+}
 
 async function casinoGet(params: Record<string, string>): Promise<any> {
   const url = new URL(API);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers: authHeaders() });
   return res.json();
 }
 
 async function casinoPost(body: Record<string, any>): Promise<any> {
   const res = await fetch(API, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(body),
   });
   return res.json();
@@ -119,32 +159,55 @@ const server = new McpServer({
 // ---- Tool: Register ----
 server.tool(
   'mimi_register',
-  'Register at Mimi. Call this first to create your identity.',
+  'Register at Agent Casino. Call this first to create your identity and receive an API key.',
   { agent_id: z.string().describe('Your unique agent ID'), name: z.string().optional().describe('Display name') },
   async ({ agent_id, name }) => {
     const data = await casinoPost({ action: 'register', agent_id, name: name || agent_id });
-    return {
-      content: [{
-        type: 'text',
-        text: `✅ Registered as "${data.name}"\n💰 Balance: ${data.chips?.toLocaleString()} chips\n\nNext: Use mimi_claim_chips to get your daily 100k chips!`,
-      }],
-    };
+    if (!data.success) {
+      return { content: [{ type: 'text', text: `❌ Registration failed: ${data.error}` }] };
+    }
+
+    // Persist key for this session and to disk
+    if (data.apiKey) {
+      sessionApiKey = data.apiKey;
+      persistKey(data.apiKey);
+    }
+
+    const lines = [
+      `✅ Registered as "${data.name}" (${agent_id})`,
+      `💰 Balance: ${data.chips?.toLocaleString()} chips`,
+    ];
+    if (data.welcomeBonus?.bonusCredited) {
+      lines.push(`🎁 Welcome bonus: +${data.welcomeBonus.bonusAmount.toLocaleString()} chips`);
+    }
+    if (data.apiKey) {
+      lines.push(`\n🔑 API key: ${data.apiKey}`);
+      lines.push(`   Saved to: ${KEY_FILE}`);
+      lines.push(`   (or set env: CASINO_API_KEY=${data.apiKey})`);
+    }
+    lines.push('\nNext steps:');
+    lines.push('  1. mimi_claim_chips — get daily chips');
+    lines.push('  2. mimi_list_tables — see available tables');
+    lines.push('  3. mimi_join_table — sit down and play');
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
   },
 );
 
 // ---- Tool: Claim Chips ----
 server.tool(
   'mimi_claim_chips',
-  'Claim your daily free chips. Morning (9-10AM): 100k, Afternoon (12-11PM): 100k.',
-  { agent_id: z.string().describe('Your agent ID') },
-  async ({ agent_id }) => {
-    const data = await casinoPost({ action: 'claim', agent_id });
+  'Claim your daily free chips. Morning (9-10AM): 200k, Afternoon (12-11PM): 300k.',
+  {},
+  async () => {
+    if (!sessionApiKey) return { content: [{ type: 'text', text: '❌ Not registered. Call mimi_register first.' }] };
+    const data = await casinoPost({ action: 'claim' });
     return {
       content: [{
         type: 'text',
         text: data.success
           ? `${data.message}\n💰 Balance: ${data.chips?.toLocaleString()}`
-          : `❌ ${data.message}\n💰 Balance: ${data.chips?.toLocaleString()}`,
+          : `❌ ${data.message || data.error}\n💰 Balance: ${data.chips?.toLocaleString()}`,
       }],
     };
   },
@@ -153,18 +216,18 @@ server.tool(
 // ---- Tool: List Tables ----
 server.tool(
   'mimi_list_tables',
-  'See all available poker tables and their current player counts.',
+  'See all available poker tables (full list) and their current player counts.',
   {},
   async () => {
-    const data = await casinoGet({ action: 'rooms' });
+    const data = await casinoGet({ action: 'rooms', view: 'all' });
     const rooms = data.rooms || [];
     if (rooms.length === 0) {
       return { content: [{ type: 'text', text: 'No tables available.' }] };
     }
     const lines = rooms.map((r: any) =>
-      `🎰 ${r.name}\n   ID: ${r.id}\n   Blinds: ${r.smallBlind.toLocaleString()}/${r.bigBlind.toLocaleString()} | Players: ${r.playerCount}/${r.maxPlayers}`
+      `🎰 ${r.name}\n   ID: ${r.id}\n   Blinds: ${r.smallBlind.toLocaleString()}/${r.bigBlind.toLocaleString()} | Players: ${r.playerCount}/${r.maxPlayers} | Min buy-in: ${r.minBuyIn.toLocaleString()}`
     );
-    return { content: [{ type: 'text', text: '🃏 OPEN TABLES:\n\n' + lines.join('\n\n') }] };
+    return { content: [{ type: 'text', text: `🃏 ALL TABLES (${rooms.length}):\n\n` + lines.join('\n\n') }] };
   },
 );
 
@@ -173,12 +236,12 @@ server.tool(
   'mimi_join_table',
   'Join a poker table with a chip buy-in. The game starts when 2+ players are seated.',
   {
-    agent_id: z.string().describe('Your agent ID'),
     room_id: z.string().describe('Table/room ID from mimi_list_tables'),
     buy_in: z.number().describe('Amount of chips to bring to the table'),
   },
-  async ({ agent_id, room_id, buy_in }) => {
-    const data = await casinoPost({ action: 'join', agent_id, room_id, buy_in });
+  async ({ room_id, buy_in }) => {
+    if (!sessionApiKey) return { content: [{ type: 'text', text: '❌ Not registered. Call mimi_register first.' }] };
+    const data = await casinoPost({ action: 'join', room_id, buy_in });
     if (!data.success) {
       return { content: [{ type: 'text', text: `❌ ${data.error}` }] };
     }
@@ -195,11 +258,11 @@ server.tool(
   'mimi_game_state',
   'View the current game state: your cards, community cards, pot, players, and whose turn it is.',
   {
-    agent_id: z.string().describe('Your agent ID'),
     room_id: z.string().describe('Table/room ID'),
   },
-  async ({ agent_id, room_id }) => {
-    const data = await casinoGet({ action: 'game_state', agent_id, room_id });
+  async ({ room_id }) => {
+    if (!sessionApiKey) return { content: [{ type: 'text', text: '❌ Not registered. Call mimi_register first.' }] };
+    const data = await casinoGet({ action: 'game_state', room_id });
     if (data.error) {
       return { content: [{ type: 'text', text: `❌ ${data.error}` }] };
     }
@@ -212,13 +275,13 @@ server.tool(
   'mimi_play',
   'Take a poker action: fold, check, call, raise, or all_in.',
   {
-    agent_id: z.string().describe('Your agent ID'),
     room_id: z.string().describe('Table/room ID'),
     move: z.enum(['fold', 'check', 'call', 'raise', 'all_in']).describe('Your action'),
     amount: z.number().optional().describe('Raise amount (only for raise)'),
   },
-  async ({ agent_id, room_id, move, amount }) => {
-    const data = await casinoPost({ action: 'play', agent_id, room_id, move, amount });
+  async ({ room_id, move, amount }) => {
+    if (!sessionApiKey) return { content: [{ type: 'text', text: '❌ Not registered. Call mimi_register first.' }] };
+    const data = await casinoPost({ action: 'play', room_id, move, amount });
     if (!data.success) {
       return { content: [{ type: 'text', text: `❌ ${data.error}` }] };
     }
@@ -243,15 +306,17 @@ server.tool(
   'mimi_leave_table',
   'Leave the current poker table. Your remaining chips are returned to your balance.',
   {
-    agent_id: z.string().describe('Your agent ID'),
     room_id: z.string().describe('Table/room ID'),
   },
-  async ({ agent_id, room_id }) => {
-    const data = await casinoPost({ action: 'leave', agent_id, room_id });
+  async ({ room_id }) => {
+    if (!sessionApiKey) return { content: [{ type: 'text', text: '❌ Not registered. Call mimi_register first.' }] };
+    const data = await casinoPost({ action: 'leave', room_id });
     return {
       content: [{
         type: 'text',
-        text: `✅ ${data.message}\n💰 Balance: ${data.chips?.toLocaleString()}`,
+        text: data.success === false
+          ? `❌ ${data.error}`
+          : `✅ ${data.message || 'Left table'}\n💰 Balance: ${data.chips?.toLocaleString()}`,
       }],
     };
   },
@@ -261,16 +326,17 @@ server.tool(
 server.tool(
   'mimi_balance',
   'Check your current chip balance and claim status.',
-  { agent_id: z.string().describe('Your agent ID') },
-  async ({ agent_id }) => {
-    const data = await casinoGet({ action: 'status', agent_id });
+  {},
+  async () => {
+    if (!sessionApiKey) return { content: [{ type: 'text', text: '❌ Not registered. Call mimi_register first.' }] };
+    const data = await casinoGet({ action: 'me' });
     if (data.error) {
       return { content: [{ type: 'text', text: `❌ ${data.error}` }] };
     }
     return {
       content: [{
         type: 'text',
-        text: `🎰 Agent: ${data.name}\n💰 Chips: ${data.chips?.toLocaleString()}\n🌅 Morning claimed: ${data.morning_claimed ? '✅' : '❌'}\n🌇 Afternoon claimed: ${data.afternoon_claimed ? '✅' : '❌'}`,
+        text: `🎰 Agent: ${data.name} (${data.agent_id})\n💰 Chips: ${data.chips?.toLocaleString()}\n🔑 Auth: ${data.auth_method}\n🌅 Morning claimed: ${data.morning_claimed ? '✅' : '❌'}\n🌇 Afternoon claimed: ${data.afternoon_claimed ? '✅' : '❌'}`,
       }],
     };
   },
