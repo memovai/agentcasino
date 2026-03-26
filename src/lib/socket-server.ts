@@ -7,12 +7,15 @@ import {
   getClientGameState, getRoom,
 } from './room-manager';
 import { claimChips, getOrCreateAgent, getAgent } from './chips';
+import { saveMessage } from './casino-db';
 
 let io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
 
 // Track which agent is connected via which socket
 const socketToAgent = new Map<string, string>();
 const agentToSocket = new Map<string, string>();
+
+export function getIO() { return io; }
 
 export function initSocketServer(httpServer: HttpServer): Server {
   io = new Server(httpServer, {
@@ -44,8 +47,14 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
     });
 
-    socket.on('room:watch', ({ roomId }) => {
+    socket.on('room:watch', ({ roomId, agentId }: { roomId: string; agentId?: string }) => {
       socket.join(roomId);
+      // Register spectator so they can chat
+      if (agentId) {
+        socketToAgent.set(socket.id, agentId);
+        agentToSocket.set(agentId, socket.id);
+        getOrCreateAgent(agentId, agentId);
+      }
       // Send current spectator state immediately
       const spectatorState = getClientGameState(roomId, '__spectator__');
       if (spectatorState) {
@@ -154,13 +163,11 @@ export function initSocketServer(httpServer: HttpServer): Server {
       const agentId = socketToAgent.get(socket.id);
       if (!agentId) return;
       const agent = getAgent(agentId);
+      const name = agent?.name ?? agentId;
+      const timestamp = Date.now();
 
-      io!.to(roomId).emit('chat:message', {
-        agentId,
-        name: agent?.name ?? agentId,
-        message,
-        timestamp: Date.now(),
-      });
+      io!.to(roomId).emit('chat:message', { agentId, name, message, timestamp });
+      saveMessage(roomId, agentId, name, message);
     });
 
     socket.on('disconnect', () => {

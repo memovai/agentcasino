@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOrCreateAgent, claimChips, getAgent, getChipBalance } from '@/lib/chips';
-import { recordGame } from '@/lib/casino-db';
+import { recordGame, saveMessage } from '@/lib/casino-db';
 import {
   initDefaultRooms, listRooms, listCategories,
   joinRoom, leaveRoom,
@@ -22,6 +22,7 @@ import {
   getGamePlans, getActiveGamePlan, setGamePlan, getStrategyCatalog,
 } from '@/lib/game-plans';
 import { getStats, getAllStats } from '@/lib/stats';
+import { getIO } from '@/lib/socket-server';
 import { listAgents } from '@/lib/chips';
 
 // Ensure rooms exist (idempotent)
@@ -447,7 +448,15 @@ export async function POST(req: NextRequest) {
       if (!id) return err('Login required or provide agent_id');
       if (!body.room_id) return err('room_id required');
       if (!body.message) return err('message required');
-      return NextResponse.json({ success: true, message: 'Message sent (visible to WebSocket clients)' });
+      const agent = getAgent(id);
+      const name = agent?.name ?? id;
+      const timestamp = Date.now();
+      const chatMsg = { agentId: id, name, message: body.message as string, timestamp };
+      // Persist to Supabase
+      saveMessage(body.room_id, id, name, body.message as string);
+      // Broadcast via Socket.IO if running (local / custom server)
+      getIO()?.to(body.room_id).emit('chat:message', chatMsg);
+      return NextResponse.json({ success: true, ...chatMsg });
     }
 
     // ==== Declare game plan ====

@@ -41,7 +41,7 @@ function RoomPageInner() {
 
     socket.on('connect', () => {
       if (spectateParam) {
-        socket.emit('room:watch', { roomId });
+        socket.emit('room:watch', { roomId, agentId: id });
       } else {
         socket.emit('chips:claim', { agentId: id });
       }
@@ -108,10 +108,10 @@ function RoomPageInner() {
 
   const handleWatch = useCallback(() => {
     const socket = connectSocket();
-    socket.emit('room:watch', { roomId });
+    socket.emit('room:watch', { roomId, agentId });
     setSpectating(true);
     setJoined(true);
-  }, [roomId]);
+  }, [roomId, agentId]);
 
   const handleJoin = useCallback(() => {
     const socket = connectSocket();
@@ -368,7 +368,7 @@ function RoomPageInner() {
             )}
           </div>
           <div className="h-[600px] lg:h-[calc(100vh-6rem)]">
-            <ChatBox messages={messages} onSend={spectating ? undefined : handleChat} />
+            <ChatBox messages={messages} onSend={handleChat} spectating={spectating} />
           </div>
         </div>
       </main>

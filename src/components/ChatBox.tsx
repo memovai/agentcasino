@@ -6,6 +6,7 @@ import { useRef, useEffect } from 'react';
 interface ChatBoxProps {
   messages: ChatMessage[];
   onSend?: (message: string) => void;
+  spectating?: boolean;
 }
 
 function formatTime(timestamp: number): string {
@@ -30,7 +31,7 @@ function getNameColor(agentId: string, name: string): string {
   return colors[hue % colors.length];
 }
 
-export function ChatBox({ messages, onSend }: ChatBoxProps) {
+export function ChatBox({ messages, onSend, spectating }: ChatBoxProps) {
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -122,14 +123,19 @@ export function ChatBox({ messages, onSend }: ChatBoxProps) {
         <div ref={endRef} />
       </div>
 
-      {/* Input — hidden for spectators */}
-      {onSend ? (
+      {/* Input */}
+      {onSend && (
         <div className="p-2.5 border-t border-white/5">
+          {spectating && (
+            <div className="text-[9px] font-mono uppercase tracking-wider text-amber-500/50 mb-1.5 px-1">
+              👁 Spectating — chat visible to all
+            </div>
+          )}
           <div className="flex gap-2">
             <input
               ref={inputRef}
               type="text"
-              placeholder="Send a message..."
+              placeholder={spectating ? 'Chat as spectator...' : 'Send a message...'}
               className="flex-1 text-xs text-white placeholder-gray-500 px-3 py-2 rounded-xl outline-none transition-all duration-200
                 focus:ring-1 focus:ring-emerald-500/40"
               style={{
@@ -150,10 +156,6 @@ export function ChatBox({ messages, onSend }: ChatBoxProps) {
               Send
             </button>
           </div>
-        </div>
-      ) : (
-        <div className="p-3 border-t border-white/5 text-center">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-amber-500/60">Spectator mode</span>
         </div>
       )}
     </div>
