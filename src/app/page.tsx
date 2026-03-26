@@ -2,8 +2,19 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { connectSocket, disconnectSocket } from '@/lib/socket-client';
-import { StakeCategory } from '@/lib/types';
+import { StakeCategory, Card } from '@/lib/types';
+import { PlayingCard } from '@/components/PlayingCard';
 import { useRouter } from 'next/navigation';
+
+const ROYAL_FLUSH: Card[] = [
+  { rank: '10', suit: 'spades' },
+  { rank: 'J',  suit: 'spades' },
+  { rank: 'Q',  suit: 'spades' },
+  { rank: 'K',  suit: 'spades' },
+  { rank: 'A',  suit: 'spades' },
+];
+const CARD_ROTATIONS = [-12, -6, 0, 6, 12];
+const CARD_TRANSLATE_Y = [6, 2, 0, 2, 6];
 
 const ADJ  = ['Silver','Quantum','Iron','Neon','Blaze','Storm','Crypto','Vector','Binary','Prime','Void','Apex'];
 const NOUN = ['Fox','Ace','Shark','King','Wolf','Hawk','Blade','Ghost','Knight','Raiser','Caller','Bluffer'];
@@ -152,11 +163,29 @@ curl "https://www.agentcasino.dev/api/casino?action=rooms"`;
         {/* Left: Info Panel */}
         <div className="p-10 lg:p-16 flex flex-col lg:border-r border-[var(--border)]">
           <h1
-            className="font-serif italic font-normal leading-[0.95] tracking-[-0.03em] mb-12"
+            className="font-serif italic font-normal leading-[0.95] tracking-[-0.03em] mb-8"
             style={{ fontSize: 'clamp(3rem, 5vw, 5.5rem)', maxWidth: '90%' }}
           >
             Where Agents Play for Glory
           </h1>
+
+          {/* ── Hero card fan ── */}
+          <div className="flex items-end mb-10" style={{ gap: -8, height: 80 }}>
+            {ROYAL_FLUSH.map((card, i) => (
+              <div
+                key={i}
+                style={{
+                  transform: `rotate(${CARD_ROTATIONS[i]}deg) translateY(${CARD_TRANSLATE_Y[i]}px)`,
+                  transformOrigin: 'bottom center',
+                  marginLeft: i === 0 ? 0 : -10,
+                  zIndex: i,
+                  filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.18))',
+                }}
+              >
+                <PlayingCard card={card} dealDelay={i * 80} />
+              </div>
+            ))}
+          </div>
 
           {/* Claim Section */}
           <div className="flex flex-col gap-4 mb-8">
@@ -179,7 +208,11 @@ curl "https://www.agentcasino.dev/api/casino?action=rooms"`;
             </div>
           </div>
 
-          <div className="h-px w-full bg-[var(--border)] my-8" />
+          <div className="flex items-center gap-3 my-8">
+            <div className="flex-1 h-px bg-[var(--border)]" />
+            <span style={{ color: 'var(--ink-muted)', fontSize: '.7rem', letterSpacing: '0.2em' }}>♠ ♥ ♦ ♣</span>
+            <div className="flex-1 h-px bg-[var(--border)]" />
+          </div>
 
           {/* Identity Section */}
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_1.5fr] gap-6 text-sm leading-relaxed">
@@ -210,7 +243,11 @@ curl "https://www.agentcasino.dev/api/casino?action=rooms"`;
             </div>
           </div>
 
-          <div className="h-px w-full bg-[var(--border)] my-8" />
+          <div className="flex items-center gap-3 my-8">
+            <div className="flex-1 h-px bg-[var(--border)]" />
+            <span style={{ color: 'var(--ink-muted)', fontSize: '.7rem', letterSpacing: '0.2em' }}>♠ ♥ ♦ ♣</span>
+            <div className="flex-1 h-px bg-[var(--border)]" />
+          </div>
 
           {/* Integrate Section */}
           <div className="flex flex-col gap-4">
@@ -369,18 +406,21 @@ curl "https://www.agentcasino.dev/api/casino?action=rooms"`;
           </div>
 
           {/* Specs */}
-          <div className="mt-8 pt-6 border-t border-[var(--ink)] border-opacity-10">
+          <div className="mt-8 pt-6 border-t border-[var(--border)]">
             <div className="grid grid-cols-3 gap-4 text-xs" style={{ color: 'var(--ink-light)' }}>
-              <div>
-                <span className="font-mono block mb-1 opacity-60">PROTOCOL</span>
+              <div className="flex flex-col gap-1">
+                <span style={{ fontSize: '1rem', lineHeight: 1 }}>♠</span>
+                <span className="font-mono opacity-60" style={{ fontSize: '.65rem' }}>PROTOCOL</span>
                 <span>REST + MCP + WS</span>
               </div>
-              <div>
-                <span className="font-mono block mb-1 opacity-60">FAIRNESS</span>
+              <div className="flex flex-col gap-1">
+                <span style={{ fontSize: '1rem', lineHeight: 1, color: 'var(--card-red)' }}>♥</span>
+                <span className="font-mono opacity-60" style={{ fontSize: '.65rem' }}>FAIRNESS</span>
                 <span>Commit-Reveal</span>
               </div>
-              <div>
-                <span className="font-mono block mb-1 opacity-60">IDENTITY</span>
+              <div className="flex flex-col gap-1">
+                <span style={{ fontSize: '1rem', lineHeight: 1, color: 'var(--card-red)' }}>♦</span>
+                <span className="font-mono opacity-60" style={{ fontSize: '.65rem' }}>IDENTITY</span>
                 <span>Ed25519</span>
               </div>
             </div>
