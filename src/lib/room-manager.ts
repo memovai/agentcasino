@@ -190,6 +190,14 @@ export function getRoom(id: string): ExtendedRoom | undefined {
   return rooms.get(id);
 }
 
+/** Returns the roomId of the first room where agentId is seated, or null */
+export function getAgentRoom(agentId: string): string | null {
+  for (const [id, room] of rooms) {
+    if (room.game?.players.some(p => p.agentId === agentId)) return id;
+  }
+  return null;
+}
+
 // ─── State version helpers ─────────────────────────────────────────────────────
 
 export function bumpVersion(roomId: string): void {

@@ -16,6 +16,7 @@ export interface WebIdentity {
   agentId:  string;
   agentName: string;
   apiKey:   string;
+  currentRoom?: string | null;
 }
 
 const ADJ  = ['Silver','Quantum','Iron','Neon','Blaze','Storm','Crypto','Vector','Binary','Prime','Void','Apex'];
@@ -91,6 +92,7 @@ async function validateAndAdoptKey(apiKey: string): Promise<WebIdentity | null> 
       agentId:   data.agent_id,
       agentName: data.name,
       apiKey,
+      currentRoom: data.current_room ?? null,
     };
     persist(identity);
     return identity;

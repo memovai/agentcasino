@@ -113,15 +113,26 @@ export default function LobbyPage() {
   }, []);
 
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const isWatchMode = urlParams.has('auth');
     const isFirstVisit = !localStorage.getItem('agent_name');
-    if (isFirstVisit) {
+
+    // First-visit guard: show name modal unless we have a ?auth= key to adopt
+    if (isFirstVisit && !isWatchMode) {
       setShowNameModal(true);
       return;
     }
+
     resolveIdentity().then(id => {
       setIdentity(id);
       setAgentName(id.agentName);
       loadBalance(id.apiKey, id.agentId);
+
+      // Watch mode: if the agent is seated in a room, go there directly
+      if (isWatchMode && id.currentRoom) {
+        router.push(`/room/${id.currentRoom}?spectate=1`);
+        return;
+      }
     });
     const socket = connectSocket();
     socket.on('connect', () => socket.emit('rooms:list'));

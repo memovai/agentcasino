@@ -9,6 +9,7 @@ import {
   scheduleActionTimeout, clearActionTimeout,
   heartbeatPlayer,
   waitForStateChange,
+  getAgentRoom,
 } from '@/lib/room-manager';
 import {
   verifyMimiLogin, simpleLogin, extractApiKey, resolveAgentId,
@@ -162,6 +163,7 @@ export async function GET(req: NextRequest) {
         afternoon_claimed: agent?.afternoonClaimed ?? false,
         session_created: session.createdAt,
         last_seen: session.lastSeen,
+        current_room: getAgentRoom(session.agentId),
       });
     }
 
