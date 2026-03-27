@@ -75,6 +75,8 @@ const TABLE_NAMES: Record<string, string[]> = {
 interface ExtendedRoom extends Room {
   categoryId: string;
   tableNumber: number;
+  stateVersion: number;
+  turnDeadlineMs: number | null;
 }
 
 const globalAny = globalThis as any;
@@ -90,6 +92,17 @@ if (!globalAny2.__casino_timeouts) {
   globalAny2.__casino_timeouts = new Map<string, NodeJS.Timeout>();
 }
 const actionTimeouts: Map<string, NodeJS.Timeout> = globalAny2.__casino_timeouts;
+
+// ─── Consecutive timeout tracking ─────────────────────────────────────────────
+
+if (!globalAny2.__casino_consec_timeouts) {
+  globalAny2.__casino_consec_timeouts = new Map<string, number>();
+}
+const consecutiveTimeouts: Map<string, number> = globalAny2.__casino_consec_timeouts;
+
+// ─── Turn timer constant ───────────────────────────────────────────────────────
+
+const TURN_TIMEOUT_MS = 30_000;
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -115,6 +128,8 @@ function createFixedTable(categoryId: string, tableNumber: number): ExtendedRoom
     game: null,
     spectators: [],
     createdAt: Date.now(),
+    stateVersion: 0,
+    turnDeadlineMs: null,
   };
   rooms.set(room.id, room);
   return room;
@@ -173,6 +188,33 @@ async function hydrateFromDB(): Promise<void> {
 
 export function getRoom(id: string): ExtendedRoom | undefined {
   return rooms.get(id);
+}
+
+// ─── State version helpers ─────────────────────────────────────────────────────
+
+export function bumpVersion(roomId: string): void {
+  const room = rooms.get(roomId);
+  if (room) room.stateVersion = (room.stateVersion ?? 0) + 1;
+}
+
+export function getRoomStateVersion(roomId: string): number {
+  return rooms.get(roomId)?.stateVersion ?? 0;
+}
+
+/** Long-poll: wait up to maxWaitMs for stateVersion to exceed sinceVersion. */
+export async function waitForStateChange(
+  roomId: string,
+  sinceVersion: number,
+  maxWaitMs = 8_000,
+): Promise<number> {
+  const interval = 300;
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    const current = getRoomStateVersion(roomId);
+    if (current > sinceVersion) return current;
+    await new Promise<void>(r => setTimeout(r, interval));
+  }
+  return getRoomStateVersion(roomId);
 }
 
 // ─── Listing ──────────────────────────────────────────────────────────────────
@@ -304,6 +346,7 @@ export function joinRoom(roomId: string, agentId: string, agentName: string, buy
   }
 
   saveRoomPlayer(roomId, agentId, agentName, buyIn);
+  bumpVersion(roomId);
   return null;
 }
 
@@ -323,11 +366,15 @@ export function leaveRoom(roomId: string, agentId: string): void {
   if (!room.game || room.game.players.length < 2) {
     clearActionTimeout(roomId);
   }
+
+  bumpVersion(roomId);
 }
 
 // ─── Action timeout ───────────────────────────────────────────────────────────
 
 export function clearActionTimeout(roomId: string): void {
+  const room = rooms.get(roomId);
+  if (room) room.turnDeadlineMs = null;
   const existing = actionTimeouts.get(roomId);
   if (existing !== undefined) {
     clearTimeout(existing);
@@ -358,10 +405,28 @@ export function scheduleActionTimeout(roomId: string): void {
   // Clear any existing timeout before setting a new one
   clearActionTimeout(roomId);
 
+  // Expose deadline so agents can count down
+  room.turnDeadlineMs = Date.now() + TURN_TIMEOUT_MS;
+  bumpVersion(roomId);
+
   const timeout = setTimeout(() => {
     actionTimeouts.delete(roomId);
-    console.log(`[auto-fold] ${currentPlayer.name} timed out in room ${roomId}`);
-    handleAction(roomId, currentPlayer.agentId, 'fold');
+    if (room) room.turnDeadlineMs = null;
+
+    const key = `${roomId}:${currentPlayer.agentId}`;
+    const count = (consecutiveTimeouts.get(key) ?? 0) + 1;
+    consecutiveTimeouts.set(key, count);
+
+    if (count >= 3) {
+      // Kick after 3 consecutive timeouts
+      consecutiveTimeouts.delete(key);
+      console.log(`[kick] ${currentPlayer.name} kicked from ${roomId} after ${count} consecutive timeouts`);
+      leaveRoom(roomId, currentPlayer.agentId);
+    } else {
+      console.log(`[auto-fold] ${currentPlayer.name} timed out in ${roomId} (${count}/3)`);
+      handleAction(roomId, currentPlayer.agentId, 'fold', undefined, true);
+    }
+
     // Attempt to broadcast updated state via socket server if available
     try {
       const socketServer = require('./socket-server');
@@ -373,14 +438,20 @@ export function scheduleActionTimeout(roomId: string): void {
     }
     // Schedule the next player's timeout
     scheduleActionTimeout(roomId);
-  }, 30_000);
+  }, TURN_TIMEOUT_MS);
 
   actionTimeouts.set(roomId, timeout);
 }
 
 // ─── Game actions ─────────────────────────────────────────────────────────────
 
-export function handleAction(roomId: string, agentId: string, action: string, amount?: number): string | null {
+export function handleAction(
+  roomId: string,
+  agentId: string,
+  action: string,
+  amount?: number,
+  isTimeout = false,
+): string | null {
   const room = rooms.get(roomId);
   if (!room || !room.game) return 'No active game';
 
@@ -390,6 +461,12 @@ export function handleAction(roomId: string, agentId: string, action: string, am
   const success = processAction(room.game, agentId, action as any, amount);
   if (!success) return 'Invalid action for current game state';
 
+  // Real action resets consecutive timeout count
+  if (!isTimeout) {
+    consecutiveTimeouts.delete(`${roomId}:${agentId}`);
+  }
+
+  bumpVersion(roomId);
   return null;
 }
 
@@ -399,6 +476,7 @@ export function tryStartGame(roomId: string): boolean {
 
   if (canStartGame(room.game)) {
     startNewHand(room.game, roomId, room.name);
+    bumpVersion(roomId);
     return true;
   }
   return false;
@@ -425,6 +503,7 @@ export function tryStartNextHand(roomId: string): boolean {
   if (room.game.players.length < 2) return false;
 
   startNewHand(room.game);
+  bumpVersion(roomId);
   return true;
 }
 
@@ -450,6 +529,10 @@ export function getClientGameState(roomId: string, viewerAgentId: string): Clien
     isConnected: p.isConnected,
   }));
 
+  const now = Date.now();
+  const deadline = room.turnDeadlineMs ?? null;
+  const turnTimeRemaining = deadline !== null ? Math.max(0, Math.round((deadline - now) / 1000)) : null;
+
   return {
     id: game.id,
     phase: game.phase,
@@ -464,6 +547,9 @@ export function getClientGameState(roomId: string, viewerAgentId: string): Clien
     minRaise: game.minRaise,
     winners: game.winners,
     lastAction: game.lastAction,
+    stateVersion: room.stateVersion ?? 0,
+    turnDeadline: deadline,
+    turnTimeRemaining,
   };
 }
 

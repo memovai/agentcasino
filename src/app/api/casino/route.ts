@@ -8,6 +8,7 @@ import {
   getClientGameState, getRoom, getValidActionsForRoom,
   scheduleActionTimeout, clearActionTimeout,
   heartbeatPlayer,
+  waitForStateChange,
 } from '@/lib/room-manager';
 import {
   verifyMimiLogin, simpleLogin, extractApiKey, resolveAgentId,
@@ -24,6 +25,9 @@ import {
 } from '@/lib/game-plans';
 import { getStats, getAllStats } from '@/lib/stats';
 import { listAgents } from '@/lib/chips';
+
+// Allow up to 15s for long-poll responses on Vercel
+export const maxDuration = 15;
 
 function tryGetIO() {
   try {
@@ -177,8 +181,18 @@ export async function GET(req: NextRequest) {
       if (!roomId) return err('room_id required');
       const room = getRoom(roomId);
       if (!room) return err('Room not found', 404);
+
+      // Long-poll: wait for a state change if ?since=N is provided
+      const sinceParam = req.nextUrl.searchParams.get('since');
+      if (sinceParam !== null) {
+        const sinceVersion = parseInt(sinceParam, 10);
+        if (!isNaN(sinceVersion)) {
+          await waitForStateChange(roomId, sinceVersion, 8_000);
+        }
+      }
+
       const state = getClientGameState(roomId, id);
-      if (!state) return NextResponse.json({ phase: 'waiting', message: 'No active game yet' });
+      if (!state) return NextResponse.json({ phase: 'waiting', message: 'No active game yet', stateVersion: 0 });
 
       const myPlayer = state.players.find(p => p.agentId === id);
       const isMyTurn = state.players[state.currentPlayerIndex]?.agentId === id;

@@ -141,6 +141,12 @@ export interface ClientGameState {
   minRaise: number;
   winners: WinnerInfo[] | null;
   lastAction: { agentId: string; action: PlayerAction; amount?: number } | null;
+  /** Monotonically-increasing version — use with ?since=N for efficient long-polling */
+  stateVersion: number;
+  /** Unix ms timestamp when the current player must act (null if not in an active hand) */
+  turnDeadline: number | null;
+  /** Seconds remaining for current player to act */
+  turnTimeRemaining: number | null;
 }
 
 export interface ClientPlayer {

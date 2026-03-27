@@ -20,6 +20,10 @@ interface AgentRawStats {
   showdownWins: number;
   cbetOpportunities: number;  // was preflop aggressor, flop was dealt
   cbetMade: number;           // bet on flop as preflop aggressor
+  // Streak tracking
+  currentStreak: number;      // >0 = win streak, <0 = loss streak
+  bestWinStreak: number;
+  worstLossStreak: number;    // stored as positive number
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +66,7 @@ function getOrCreate(agentId: string): AgentRawStats {
       aggressiveActions: 0, passiveActions: 0,
       showdownHands: 0, showdownWins: 0,
       cbetOpportunities: 0, cbetMade: 0,
+      currentStreak: 0, bestWinStreak: 0, worstLossStreak: 0,
     });
   }
   return agentStats.get(agentId)!;
@@ -188,6 +193,20 @@ export function trackHandEnd(
     }
   }
 
+  // Streak tracking for all players in the hand
+  for (const id of h.agentIds) {
+    const s = getOrCreate(id);
+    const isWinner = winnerIds.includes(id);
+    if (isWinner) {
+      s.currentStreak = s.currentStreak > 0 ? s.currentStreak + 1 : 1;
+      if (s.currentStreak > s.bestWinStreak) s.bestWinStreak = s.currentStreak;
+    } else {
+      s.currentStreak = s.currentStreak < 0 ? s.currentStreak - 1 : -1;
+      const lossLen = -s.currentStreak;
+      if (lossLen > s.worstLossStreak) s.worstLossStreak = lossLen;
+    }
+  }
+
   handTracking.delete(handId);
 }
 
@@ -205,6 +224,9 @@ export interface ComputedStats {
   w_sd_pct: number;
   cbet_pct: number;
   style: string; // classification
+  current_streak: number;
+  best_win_streak: number;
+  worst_loss_streak: number;
   raw: AgentRawStats;
 }
 
@@ -237,6 +259,9 @@ export function getStats(agentId: string): ComputedStats {
     w_sd_pct: pct(r.showdownWins, r.showdownHands),
     cbet_pct: pct(r.cbetMade, r.cbetOpportunities),
     style: classifyStyle(vpip, af),
+    current_streak: r.currentStreak,
+    best_win_streak: r.bestWinStreak,
+    worst_loss_streak: r.worstLossStreak,
     raw: { ...r },
   };
 }
