@@ -121,7 +121,6 @@ export default function LobbyPage() {
     resolveIdentity().then(id => {
       setIdentity(id);
       setAgentName(id.agentName);
-      setWatchApiKey(id.apiKey);
       loadBalance(id.apiKey, id.agentId);
     });
     const socket = connectSocket();
@@ -139,7 +138,6 @@ export default function LobbyPage() {
     resolveIdentity().then(id => {
       setIdentity(id);
       setAgentName(id.agentName);
-      setWatchApiKey(id.apiKey);
       loadBalance(id.apiKey, id.agentId);
       // Rename if needed
       if (id.apiKey) {
@@ -348,33 +346,13 @@ curl "https://www.agentcasino.dev/api/casino?action=rooms"`;
                 </div>
               )}
 
-              <div className="flex flex-col gap-2 mt-1">
+              <div className="flex items-center gap-2 mt-1">
                 <button
                   onClick={claimChips}
-                  className="self-start border border-[var(--border)] bg-[var(--ink)] text-[var(--bg-page)] px-4 py-1.5 font-sans text-xs cursor-pointer transition-opacity hover:opacity-[0.88]"
+                  className="border border-[var(--border)] bg-[var(--ink)] text-[var(--bg-page)] px-4 py-1.5 font-sans text-xs cursor-pointer transition-opacity hover:opacity-[0.88]"
                 >
                   Claim Daily Chips
                 </button>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    value={watchApiKey}
-                    onChange={e => setWatchApiKey(e.target.value)}
-                    placeholder="API key (mimi_xxx) to watch agent"
-                    className="font-mono text-[10px] border border-[var(--border)] bg-white px-2 py-1.5 flex-1 min-w-0 outline-none focus:outline-1 focus:outline-[var(--ink)]"
-                    style={{ color: 'var(--ink-light)' }}
-                  />
-                  <button
-                    onClick={() => {
-                      const key = watchApiKey.trim();
-                      if (key) window.open(buildAuthLink(window.location.origin, key), '_blank');
-                    }}
-                    disabled={!watchApiKey.trim()}
-                    className="shrink-0 border border-[var(--border)] px-3 py-1.5 font-mono text-[10px] cursor-pointer transition-opacity hover:opacity-70 disabled:opacity-40 disabled:cursor-default"
-                    style={{ color: 'var(--ink)' }}
-                  >
-                    Watch ↗
-                  </button>
-                </div>
               </div>
               {message && <p className="text-xs mt-1" style={{ color: '#b33b2e' }}>{message}</p>}
             </div>
@@ -458,6 +436,35 @@ curl "https://www.agentcasino.dev/api/casino?action=rooms"`;
                   </a>
                 </div>
               )}
+            </div>
+
+            {/* ── Watch your agent ── */}
+            <div className="flex flex-col gap-2 mt-6 pt-6 border-t border-[var(--border)]">
+              <div>
+                <h3 className="font-semibold mb-1" style={{ fontSize: '.85rem' }}>Watch Your Agent</h3>
+                <p className="text-xs" style={{ color: 'var(--ink-light)' }}>
+                  Running an agent via CLI? Paste its API key (from <code className="font-mono">~/.config/agentcasino/key</code>) to open the lobby as that agent.
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={watchApiKey}
+                  onChange={e => setWatchApiKey(e.target.value)}
+                  placeholder="mimi_xxx"
+                  className="font-mono text-xs border border-[var(--border)] bg-[var(--bg-page)] px-3 py-2 flex-1 min-w-0 outline-none focus:outline-1 focus:outline-[var(--ink)]"
+                  style={{ color: 'var(--ink)' }}
+                />
+                <button
+                  onClick={() => {
+                    const key = watchApiKey.trim();
+                    if (key) window.open(buildAuthLink(window.location.origin, key), '_blank');
+                  }}
+                  disabled={!watchApiKey.trim()}
+                  className="shrink-0 border border-[var(--border)] bg-[var(--ink)] text-[var(--bg-page)] px-4 py-2 font-mono text-xs cursor-pointer transition-opacity hover:opacity-[0.88] disabled:opacity-40 disabled:cursor-default"
+                >
+                  Watch ↗
+                </button>
+              </div>
             </div>
           </div>
 
