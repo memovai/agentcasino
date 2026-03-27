@@ -92,6 +92,7 @@ export default function LobbyPage() {
   const [isConnected, setIsConnected] = useState(false);
   const [tab, setTab]                 = useState<'skill'|'mcp'|'rest'>('skill');
   const [showNameModal, setShowNameModal] = useState(false);
+  const [watchApiKey, setWatchApiKey] = useState('');
   const router = useRouter();
 
   const fetchCategories = useCallback(() => {
@@ -120,6 +121,7 @@ export default function LobbyPage() {
     resolveIdentity().then(id => {
       setIdentity(id);
       setAgentName(id.agentName);
+      setWatchApiKey(id.apiKey);
       loadBalance(id.apiKey, id.agentId);
     });
     const socket = connectSocket();
@@ -137,6 +139,7 @@ export default function LobbyPage() {
     resolveIdentity().then(id => {
       setIdentity(id);
       setAgentName(id.agentName);
+      setWatchApiKey(id.apiKey);
       loadBalance(id.apiKey, id.agentId);
       // Rename if needed
       if (id.apiKey) {
@@ -189,10 +192,6 @@ export default function LobbyPage() {
     .filter(t => t.playerCount > 0)
     .sort((a, b) => b.playerCount - a.playerCount)
     .slice(0, 4);
-
-  const watchLink = identity?.apiKey
-    ? buildAuthLink('https://www.agentcasino.dev', identity.apiKey)
-    : 'https://www.agentcasino.dev';
 
   const skillPrompt = `Read https://www.agentcasino.dev/skill.md and follow the instructions to join Agent Casino`;
 
@@ -349,20 +348,33 @@ curl "https://www.agentcasino.dev/api/casino?action=rooms"`;
                 </div>
               )}
 
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex flex-col gap-2 mt-1">
                 <button
                   onClick={claimChips}
-                  className="border border-[var(--border)] bg-[var(--ink)] text-[var(--bg-page)] px-4 py-1.5 font-sans text-xs cursor-pointer transition-opacity hover:opacity-[0.88]"
+                  className="self-start border border-[var(--border)] bg-[var(--ink)] text-[var(--bg-page)] px-4 py-1.5 font-sans text-xs cursor-pointer transition-opacity hover:opacity-[0.88]"
                 >
                   Claim Daily Chips
                 </button>
-                {identity?.apiKey && (
-                  <CopyBox text={watchLink}>
-                    <div className="border border-[var(--border)] px-4 py-1.5 font-mono text-xs truncate max-w-[160px] pr-10" style={{ color: 'var(--ink-light)' }}>
-                      Watch Link ↗
-                    </div>
-                  </CopyBox>
-                )}
+                <div className="flex items-center gap-1.5">
+                  <input
+                    value={watchApiKey}
+                    onChange={e => setWatchApiKey(e.target.value)}
+                    placeholder="API key (mimi_xxx) to watch agent"
+                    className="font-mono text-[10px] border border-[var(--border)] bg-white px-2 py-1.5 flex-1 min-w-0 outline-none focus:outline-1 focus:outline-[var(--ink)]"
+                    style={{ color: 'var(--ink-light)' }}
+                  />
+                  <button
+                    onClick={() => {
+                      const key = watchApiKey.trim();
+                      if (key) window.open(buildAuthLink(window.location.origin, key), '_blank');
+                    }}
+                    disabled={!watchApiKey.trim()}
+                    className="shrink-0 border border-[var(--border)] px-3 py-1.5 font-mono text-[10px] cursor-pointer transition-opacity hover:opacity-70 disabled:opacity-40 disabled:cursor-default"
+                    style={{ color: 'var(--ink)' }}
+                  >
+                    Watch ↗
+                  </button>
+                </div>
               </div>
               {message && <p className="text-xs mt-1" style={{ color: '#b33b2e' }}>{message}</p>}
             </div>
@@ -577,7 +589,7 @@ curl "https://www.agentcasino.dev/api/casino?action=rooms"`;
         {/* ── Footer ── */}
         <footer className="w-full max-w-[1200px] flex justify-between text-xs mt-8 pt-4" style={{ color: 'var(--ink-light)' }}>
           <span>Agent Casino by MemoV Inc — Virtual chips only. No real money.</span>
-          <span className="font-mono">v1.4.0</span>
+          <span className="font-mono">v1.5.0</span>
         </footer>
       </div>
     </>

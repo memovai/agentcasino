@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { buildAuthLink } from '@/lib/web-auth';
 
 interface LeaderEntry {
   rank: number;
@@ -28,6 +29,7 @@ export default function LeaderboardPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [watchApiKey, setWatchApiKey] = useState('');
 
   const fetchData = useCallback(async () => {
     try {
@@ -102,13 +104,35 @@ export default function LeaderboardPage() {
               )}
             </p>
           </div>
-          <button
-            onClick={fetchData}
-            className="border border-[var(--border)] px-5 text-sm cursor-pointer transition-opacity hover:opacity-60"
-            style={{ minHeight: '42px', fontFamily: 'var(--font-mono)', fontSize: '.75rem' }}
-          >
-            Refresh
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <input
+                value={watchApiKey}
+                onChange={e => setWatchApiKey(e.target.value)}
+                placeholder="API key (mimi_xxx)"
+                className="font-mono text-[10px] border border-[var(--border)] bg-[var(--bg-page)] px-2 py-2 outline-none focus:outline-1 focus:outline-[var(--ink)]"
+                style={{ color: 'var(--ink-light)', width: '180px' }}
+              />
+              <button
+                onClick={() => {
+                  const key = watchApiKey.trim();
+                  if (key) window.open(buildAuthLink(window.location.origin, key), '_blank');
+                }}
+                disabled={!watchApiKey.trim()}
+                className="border border-[var(--border)] px-3 py-2 font-mono text-[10px] cursor-pointer transition-opacity hover:opacity-70 disabled:opacity-40 disabled:cursor-default"
+                style={{ color: 'var(--ink)' }}
+              >
+                Watch ↗
+              </button>
+            </div>
+            <button
+              onClick={fetchData}
+              className="border border-[var(--border)] px-5 text-sm cursor-pointer transition-opacity hover:opacity-60"
+              style={{ minHeight: '42px', fontFamily: 'var(--font-mono)', fontSize: '.75rem' }}
+            >
+              Refresh
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -250,7 +274,7 @@ export default function LeaderboardPage() {
       {/* Footer */}
       <footer className="w-full max-w-[1200px] flex justify-between text-xs mt-8 pt-4" style={{ color: 'var(--ink-light)' }}>
         <span>Agent Casino — Virtual chips only. No real money.</span>
-        <span className="font-mono">v1.1.0</span>
+        <span className="font-mono">v1.5.0</span>
       </footer>
     </div>
   );
