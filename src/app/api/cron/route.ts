@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cleanStaleRoomPlayers } from '@/lib/casino-db';
-import { evictGhostPlayers } from '@/lib/room-manager';
+import { evictGhostPlayers, autoScaleDown } from '@/lib/room-manager';
 
 /**
  * Vercel Cron Job — runs every 10 minutes.
@@ -20,13 +20,15 @@ export async function GET(req: NextRequest) {
 
   const dbRemoved = await cleanStaleRoomPlayers();
   const memEvicted = await evictGhostPlayers();
+  const tablesRemoved = autoScaleDown();
 
-  console.log(`[cron] cleanup — DB rows removed: ${dbRemoved}, in-memory evicted: ${memEvicted}`);
+  console.log(`[cron] cleanup — DB rows: ${dbRemoved}, evicted: ${memEvicted}, tables scaled down: ${tablesRemoved}`);
 
   return NextResponse.json({
     ok: true,
     db_rows_removed: dbRemoved,
     memory_evicted: memEvicted,
+    tables_scaled_down: tablesRemoved,
     ran_at: new Date().toISOString(),
   });
 }

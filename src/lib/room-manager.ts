@@ -1,7 +1,7 @@
 import { Room, RoomInfo, StakeCategory, ClientGameState, ClientPlayer } from './types';
 import { createGame, addPlayer, removePlayer, canStartGame, startNewHand, processAction, getValidActions } from './poker-engine';
 import { getOrCreateAgent, deductChips, addChips, getAgent } from './chips';
-import { loadRoomPlayers, saveRoomPlayer, removeRoomPlayer, STALE_MS, cleanStaleRoomPlayers } from './casino-db';
+import { loadRoomPlayers, loadAllRoomPlayers, saveRoomPlayer, removeRoomPlayer, STALE_MS, cleanStaleRoomPlayers } from './casino-db';
 
 // ─── Stake categories (fixed) ────────────────────────────────────────────────
 
@@ -29,22 +29,26 @@ export const STAKE_CATEGORIES: Omit<StakeCategory, 'tables'>[] = [
   {
     id: 'high',
     name: 'High Roller',
-    description: 'Blinds 10,000/20,000 · Buy-in 400k–2M',
+    description: 'Blinds 10,000/20,000 · Buy-in 200k–1M',
     smallBlind: 10_000,
     bigBlind: 20_000,
-    minBuyIn: 400_000,
-    maxBuyIn: 2_000_000,
+    minBuyIn: 200_000,
+    maxBuyIn: 1_000_000,
     maxPlayers: 6,
   },
 ];
 
 // ─── Fixed table counts per category ─────────────────────────────────────────
 
-const TABLES_PER_CATEGORY: Record<string, number> = {
-  low:  6,
-  mid:  4,
-  high: 3,
+/** Minimum tables per category — auto-scaling adds more when needed */
+const MIN_TABLES: Record<string, number> = {
+  low:  2,
+  mid:  1,
+  high: 1,
 };
+
+/** Table is "full enough" to trigger scaling when this % of seats are taken */
+const SCALE_UP_THRESHOLD = 0.7;
 
 // ─── Fun deterministic table names ───────────────────────────────────────────
 
@@ -152,8 +156,8 @@ function rehydratePlayer(room: ExtendedRoom, agentId: string, agentName: string,
 export function initDefaultRooms(): void {
   for (const cat of STAKE_CATEGORIES) {
     const existing = Array.from(rooms.values()).filter(r => r.categoryId === cat.id);
-    const count = TABLES_PER_CATEGORY[cat.id] ?? 3;
-    for (let i = existing.length + 1; i <= count; i++) {
+    const minCount = MIN_TABLES[cat.id] ?? 1;
+    for (let i = existing.length + 1; i <= minCount; i++) {
       createFixedTable(cat.id, i);
     }
   }
@@ -161,26 +165,97 @@ export function initDefaultRooms(): void {
   hydrateFromDB();
 }
 
+/**
+ * Auto-scale: if all tables in a category are ≥70% full, add one more.
+ * Called after every joinRoom. Returns the new room ID if created, or null.
+ */
+function autoScaleUp(categoryId: string): string | null {
+  const catRooms = Array.from(rooms.values()).filter(r => r.categoryId === categoryId);
+  const allBusy = catRooms.every(r => {
+    const playerCount = r.game?.players.length ?? 0;
+    return playerCount / r.maxPlayers >= SCALE_UP_THRESHOLD;
+  });
+  if (!allBusy) return null;
+
+  const nextNum = catRooms.length + 1;
+  const newRoom = createFixedTable(categoryId, nextNum);
+  console.log(`[rooms] Auto-scaled: created ${newRoom.id} (${catRooms.length} tables were ≥${SCALE_UP_THRESHOLD * 100}% full)`);
+  return newRoom.id;
+}
+
+/**
+ * Auto-scale down: remove empty tables beyond the minimum.
+ * Called by the cleanup cron. Skips tables that have players or active games.
+ */
+export function autoScaleDown(): number {
+  let removed = 0;
+  for (const cat of STAKE_CATEGORIES) {
+    const catRooms = Array.from(rooms.values())
+      .filter(r => r.categoryId === cat.id)
+      .sort((a, b) => b.tableNumber - a.tableNumber); // remove highest-numbered first
+    const minCount = MIN_TABLES[cat.id] ?? 1;
+
+    for (const room of catRooms) {
+      if (catRooms.length - removed <= minCount) break;
+      const playerCount = room.game?.players.length ?? 0;
+      if (playerCount === 0) {
+        rooms.delete(room.id);
+        removed++;
+      }
+    }
+  }
+  if (removed > 0) console.log(`[rooms] Auto-scaled down: removed ${removed} empty table(s)`);
+  return removed;
+}
+
+/** Parse room ID like "casino_low_3" into { categoryId: "low", tableNumber: 3 } */
+function parseRoomId(id: string): { categoryId: string; tableNumber: number } | null {
+  const m = id.match(/^casino_(\w+)_(\d+)$/);
+  if (!m) return null;
+  return { categoryId: m[1], tableNumber: parseInt(m[2], 10) };
+}
+
 async function hydrateFromDB(): Promise<void> {
-  for (const room of rooms.values()) {
-    try {
-      const players = await loadRoomPlayers(room.id);
-      const now = Date.now();
-      // Discard records not updated in the last 2h — prevents ghost players on cold start
+  try {
+    const allPlayers = await loadAllRoomPlayers();
+    const now = Date.now();
+
+    // Group players by room
+    const byRoom = new Map<string, typeof allPlayers>();
+    for (const p of allPlayers) {
+      const list = byRoom.get(p.roomId) || [];
+      list.push(p);
+      byRoom.set(p.roomId, list);
+    }
+
+    for (const [rid, players] of byRoom) {
+      // If room doesn't exist in memory, create it (auto-scaled table from before cold start)
+      if (!rooms.has(rid)) {
+        const parsed = parseRoomId(rid);
+        if (parsed && STAKE_CATEGORIES.find(c => c.id === parsed.categoryId)) {
+          createFixedTable(parsed.categoryId, parsed.tableNumber);
+          console.log(`[rooms] Discovered dynamic table ${rid} from DB`);
+        } else {
+          continue; // unknown room format, skip
+        }
+      }
+
+      const room = rooms.get(rid)!;
       const fresh = players.filter(p => p.chips > 0 && (now - p.updatedAt) < STALE_MS);
       const stale = players.filter(p => p.chips <= 0 || (now - p.updatedAt) >= STALE_MS);
+
       for (const p of fresh) {
         rehydratePlayer(room, p.agentId, p.agentName, p.chips);
       }
       for (const p of stale) {
-        removeRoomPlayer(room.id, p.agentId);
+        removeRoomPlayer(rid, p.agentId);
       }
       if (fresh.length > 0) {
-        console.log(`[rooms] Restored ${fresh.length} player(s) to ${room.id}`);
+        console.log(`[rooms] Restored ${fresh.length} player(s) to ${rid}`);
       }
-    } catch (e) {
-      console.error(`[rooms] hydrateFromDB failed for ${room.id}:`, e);
     }
+  } catch (e) {
+    console.error('[rooms] hydrateFromDB failed:', e);
   }
 }
 
@@ -355,6 +430,10 @@ export function joinRoom(roomId: string, agentId: string, agentName: string, buy
 
   saveRoomPlayer(roomId, agentId, agentName, buyIn);
   bumpVersion(roomId);
+
+  // Auto-scale: create a new table if all tables in this category are getting full
+  autoScaleUp(room.categoryId);
+
   return null;
 }
 
