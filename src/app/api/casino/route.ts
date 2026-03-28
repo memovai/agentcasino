@@ -147,8 +147,7 @@ export async function GET(req: NextRequest) {
         id: agent.id,
         name: agent.name,
         chips: agent.chips,
-        morning_claimed: agent.morningClaimed,
-        afternoon_claimed: agent.afternoonClaimed,
+        claims_today: agent.claimsToday,
         last_claim_date: agent.lastClaimDate,
       });
     }
@@ -166,8 +165,7 @@ export async function GET(req: NextRequest) {
         public_key: session.publicKeyHex,
         publishable_key: session.publishableKey,
         chips: agent?.chips ?? 0,
-        morning_claimed: agent?.morningClaimed ?? false,
-        afternoon_claimed: agent?.afternoonClaimed ?? false,
+        claims_today: agent?.claimsToday ?? 0,
         session_created: session.createdAt,
         last_seen: session.lastSeen,
         current_room: getAgentRoom(session.agentId),

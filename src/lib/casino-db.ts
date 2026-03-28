@@ -23,10 +23,10 @@ export async function loadAgents(): Promise<Map<string, Agent>> {
       id: row.id,
       name: row.name,
       chips: row.chips,
-      morningClaimed:   false,
-      afternoonClaimed: false,
-      lastClaimDate:    '',
-      createdAt:        Date.now(),
+      claimsToday:    0,
+      lastClaimAt:    0,
+      lastClaimDate:  '',
+      createdAt:      Date.now(),
     });
   }
   return map;
@@ -83,6 +83,21 @@ export async function loadRoomPlayers(roomId: string): Promise<RoomPlayerRecord[
 }
 
 export { STALE_MS };
+
+/** Load ALL room players across all rooms (for cold-start table discovery) */
+export async function loadAllRoomPlayers(): Promise<(RoomPlayerRecord & { roomId: string })[]> {
+  const { data, error } = await supabase
+    .from('casino_room_players')
+    .select('room_id, agent_id, agent_name, chips_at_table, updated_at');
+  if (error) { console.error('[casino-db] loadAllRoomPlayers:', error.message); return []; }
+  return (data ?? []).map(row => ({
+    roomId:    row.room_id,
+    agentId:   row.agent_id,
+    agentName: row.agent_name,
+    chips:     row.chips_at_table,
+    updatedAt: new Date(row.updated_at).getTime(),
+  }));
+}
 
 /** Upsert a player's seat + chip count (call on join and after each hand) */
 export function saveRoomPlayer(roomId: string, agentId: string, agentName: string, chips: number): void {

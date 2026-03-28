@@ -1,14 +1,11 @@
 import { Agent } from './types';
 import { saveAgent, loadAgents } from './casino-db';
 
-const MORNING_CLAIM_START = 9;  // 9:00 AM
-const MORNING_CLAIM_END = 10;   // 10:00 AM
-const AFTERNOON_START = 12;     // 12:00 PM
-const AFTERNOON_END = 23;       // 11:00 PM
-const MORNING_CLAIM_AMOUNT = 200_000;
-const AFTERNOON_CLAIM_AMOUNT = 300_000;
+const CLAIM_AMOUNT = 50_000;         // chips per claim
+const CLAIM_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour between claims
+const MAX_CLAIMS_PER_DAY = 12;       // max 12 claims/day = 600k/day
 
-// Global singleton to share state between API routes and Socket.IO
+// Global singleton to share state between API routes
 const globalAny = globalThis as any;
 if (!globalAny.__casino_agents) {
   globalAny.__casino_agents = new Map<string, Agent>();
@@ -27,10 +24,6 @@ function todayStr(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-function currentHour(): number {
-  return new Date().getHours();
-}
-
 export function getOrCreateAgent(id: string, name: string): Agent {
   let agent = agents.get(id);
   if (!agent) {
@@ -38,8 +31,8 @@ export function getOrCreateAgent(id: string, name: string): Agent {
       id,
       name,
       chips: 0,
-      morningClaimed: false,
-      afternoonClaimed: false,
+      claimsToday: 0,
+      lastClaimAt: 0,
       lastClaimDate: '',
       createdAt: Date.now(),
     };
@@ -49,8 +42,7 @@ export function getOrCreateAgent(id: string, name: string): Agent {
   // Reset daily claims if new day
   const today = todayStr();
   if (agent.lastClaimDate !== today) {
-    agent.morningClaimed = false;
-    agent.afternoonClaimed = false;
+    agent.claimsToday = 0;
     agent.lastClaimDate = today;
   }
   return agent;
@@ -61,8 +53,7 @@ export function getAgent(id: string): Agent | undefined {
   if (agent) {
     const today = todayStr();
     if (agent.lastClaimDate !== today) {
-      agent.morningClaimed = false;
-      agent.afternoonClaimed = false;
+      agent.claimsToday = 0;
       agent.lastClaimDate = today;
     }
   }
@@ -73,7 +64,9 @@ export interface ClaimResult {
   success: boolean;
   message: string;
   chips: number;
-  claimType?: 'morning' | 'afternoon';
+  claimsToday?: number;
+  maxClaims?: number;
+  nextClaimIn?: number; // seconds until next claim available
 }
 
 export function claimChips(agentId: string): ClaimResult {
@@ -84,49 +77,49 @@ export function claimChips(agentId: string): ClaimResult {
 
   const today = todayStr();
   if (agent.lastClaimDate !== today) {
-    agent.morningClaimed = false;
-    agent.afternoonClaimed = false;
+    agent.claimsToday = 0;
     agent.lastClaimDate = today;
   }
 
-  const hour = currentHour();
-
-  // Morning claim: 9:00 - 10:00
-  if (hour >= MORNING_CLAIM_START && hour < MORNING_CLAIM_END) {
-    if (agent.morningClaimed) {
-      return { success: false, message: '🌅 You already claimed your morning chips today!', chips: agent.chips };
-    }
-    agent.morningClaimed = true;
-    agent.chips += MORNING_CLAIM_AMOUNT;
-    saveAgent(agent);
+  // Check daily limit
+  if (agent.claimsToday >= MAX_CLAIMS_PER_DAY) {
     return {
-      success: true,
-      message: `🌅 Morning check-in! +${MORNING_CLAIM_AMOUNT.toLocaleString()} chips`,
+      success: false,
+      message: `🎰 Daily limit reached (${MAX_CLAIMS_PER_DAY}/${MAX_CLAIMS_PER_DAY}). Come back tomorrow!`,
       chips: agent.chips,
-      claimType: 'morning',
+      claimsToday: agent.claimsToday,
+      maxClaims: MAX_CLAIMS_PER_DAY,
     };
   }
 
-  // Afternoon claim: 12:00 - 23:00
-  if (hour >= AFTERNOON_START && hour < AFTERNOON_END) {
-    if (agent.afternoonClaimed) {
-      return { success: false, message: '🌇 You already claimed your afternoon chips today!', chips: agent.chips };
-    }
-    agent.afternoonClaimed = true;
-    agent.chips += AFTERNOON_CLAIM_AMOUNT;
-    saveAgent(agent);
+  // Check cooldown
+  const now = Date.now();
+  const elapsed = now - agent.lastClaimAt;
+  if (elapsed < CLAIM_COOLDOWN_MS) {
+    const remainSec = Math.ceil((CLAIM_COOLDOWN_MS - elapsed) / 1000);
+    const remainMin = Math.ceil(remainSec / 60);
     return {
-      success: true,
-      message: `🌇 Afternoon check-in! +${AFTERNOON_CLAIM_AMOUNT.toLocaleString()} chips`,
+      success: false,
+      message: `⏰ Cooldown: ${remainMin} min remaining. Claims: ${agent.claimsToday}/${MAX_CLAIMS_PER_DAY} today.`,
       chips: agent.chips,
-      claimType: 'afternoon',
+      claimsToday: agent.claimsToday,
+      maxClaims: MAX_CLAIMS_PER_DAY,
+      nextClaimIn: remainSec,
     };
   }
+
+  // Claim!
+  agent.claimsToday += 1;
+  agent.lastClaimAt = now;
+  agent.chips += CLAIM_AMOUNT;
+  saveAgent(agent);
 
   return {
-    success: false,
-    message: `⏰ Claim hours: Morning 9:00-10:00, Afternoon 12:00-23:00. Current time: ${hour}:00`,
+    success: true,
+    message: `💰 +${CLAIM_AMOUNT.toLocaleString()} chips! (${agent.claimsToday}/${MAX_CLAIMS_PER_DAY} today)`,
     chips: agent.chips,
+    claimsToday: agent.claimsToday,
+    maxClaims: MAX_CLAIMS_PER_DAY,
   };
 }
 

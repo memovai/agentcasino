@@ -33,9 +33,9 @@ export interface Agent {
   id: string;
   name: string;
   chips: number;
-  morningClaimed: boolean; // 早上签到
-  afternoonClaimed: boolean; // 下午签到
-  lastClaimDate: string; // YYYY-MM-DD
+  claimsToday: number;       // how many times claimed today
+  lastClaimAt: number;       // timestamp of last claim (for 1h cooldown)
+  lastClaimDate: string;     // YYYY-MM-DD (for daily reset)
   createdAt: number;
 }
 
