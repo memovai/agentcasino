@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { connectSocket, disconnectSocket } from '@/lib/socket-client';
 import { ClientGameState, ChatMessage, PlayerAction } from '@/lib/types';
 import { PokerTable } from '@/components/PokerTable';
 import { ChatBox } from '@/components/ChatBox';
@@ -39,59 +38,18 @@ function RoomPageInner() {
       setAgentName(identity.agentName);
       setSecretKey(identity.secretKey);
     });
+  }, []);
 
-    const id = localStorage.getItem('agent_id') || '';
-    const socket = connectSocket();
-
-    socket.on('connect', () => {
-      if (spectateParam) {
-        socket.emit('room:watch', { roomId, agentId: id });
-      } else {
-        socket.emit('chips:claim', { agentId: id });
-      }
-    });
-
-    socket.on('room:state', (room: any) => {
-      if (room?.name) setRoomName(room.name);
-    });
-
-    socket.on('game:state', (state) => {
-      setGameState(state);
-    });
-
-    socket.on('chat:message', (msg) => {
-      setMessages(prev => [...prev.slice(-100), msg]);
-    });
-
-    socket.on('chips:balance', (balance) => {
-      setChips(balance);
-    });
-
-    socket.on('error', (msg) => {
-      setError(msg);
-      setErrorVisible(true);
-      setTimeout(() => {
-        setErrorVisible(false);
-        setTimeout(() => setError(''), 350);
-      }, 4500);
-    });
-
-    return () => {
-      if (joined && !spectating) {
-        socket.emit('room:leave', { roomId });
-      }
-      disconnectSocket();
-    };
-  }, [roomId, spectateParam]);
-
-  // Spectator polling — REST API fallback for REST-driven simulations
+  // Game state polling via REST
   useEffect(() => {
-    if (!spectating) return;
+    if (!joined) return;
     const poll = async () => {
       try {
-        const res = await fetch(`/api/casino?action=game_state&room_id=${roomId}&agent_id=__spectator__`);
+        const aid = spectating ? '__spectator__' : agentId;
+        const headers: HeadersInit = secretKey ? { 'Authorization': `Bearer ${secretKey}` } : {};
+        const res = await fetch(`/api/casino?action=game_state&room_id=${roomId}&agent_id=${aid}`, { headers });
         const data = await res.json();
-        if (data.phase && data.phase !== 'waiting') {
+        if (data.phase) {
           setGameState(data);
           if (data.room_name) setRoomName(data.room_name);
         }
@@ -100,7 +58,7 @@ function RoomPageInner() {
     poll();
     const interval = setInterval(poll, 1200);
     return () => clearInterval(interval);
-  }, [spectating, roomId]);
+  }, [joined, spectating, roomId, agentId, secretKey]);
 
   // Chat history polling — REST fallback for Vercel (no persistent WebSocket)
   useEffect(() => {
@@ -143,23 +101,29 @@ function RoomPageInner() {
   }, []);
 
   const handleWatch = useCallback(() => {
-    const socket = connectSocket();
-    socket.emit('room:watch', { roomId, agentId });
     setSpectating(true);
     setJoined(true);
-  }, [roomId, agentId]);
+  }, []);
 
-  const handleJoin = useCallback(() => {
-    const socket = connectSocket();
-    socket.emit('room:join', { roomId, agentId, buyIn });
+  const handleJoin = useCallback(async () => {
+    if (!secretKey) return;
+    await fetch('/api/casino', {
+      method: 'POST',
+      headers: authHeaders(secretKey),
+      body: JSON.stringify({ action: 'join', room_id: roomId, buy_in: buyIn }),
+    }).catch(() => {});
     setSpectating(false);
     setJoined(true);
-  }, [roomId, agentId, buyIn]);
+  }, [roomId, secretKey, buyIn]);
 
-  const handleAction = useCallback((action: PlayerAction, amount?: number) => {
-    const socket = connectSocket();
-    socket.emit('game:action', { roomId, action, amount });
-  }, [roomId]);
+  const handleAction = useCallback(async (action: PlayerAction, amount?: number) => {
+    if (!secretKey) return;
+    await fetch('/api/casino', {
+      method: 'POST',
+      headers: authHeaders(secretKey),
+      body: JSON.stringify({ action: 'play', room_id: roomId, move: action, amount }),
+    }).catch(() => {});
+  }, [roomId, secretKey]);
 
   const handleChat = useCallback(async (message: string) => {
     if (!agentId) return;
@@ -173,11 +137,16 @@ function RoomPageInner() {
     }).catch(() => {});
   }, [roomId, agentId, agentName, secretKey]);
 
-  const handleLeave = useCallback(() => {
-    const socket = connectSocket();
-    if (!spectating) socket.emit('room:leave', { roomId });
+  const handleLeave = useCallback(async () => {
+    if (!spectating && secretKey) {
+      await fetch('/api/casino', {
+        method: 'POST',
+        headers: authHeaders(secretKey),
+        body: JSON.stringify({ action: 'leave', room_id: roomId }),
+      }).catch(() => {});
+    }
     router.push('/');
-  }, [roomId, router, spectating]);
+  }, [roomId, router, spectating, secretKey]);
 
   if (!joined) {
     /* ── Entry screen (editorial style) ── */

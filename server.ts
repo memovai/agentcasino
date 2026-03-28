@@ -1,7 +1,6 @@
 import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';
-import { initSocketServer } from './src/lib/socket-server';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -16,15 +15,12 @@ app.prepare().then(() => {
     handle(req, res, parsedUrl);
   });
 
-  initSocketServer(httpServer);
-
   httpServer.listen(port, () => {
     console.log(`
   🎰 Agent Casino is live!
 
   🌐 http://${hostname}:${port}
   🃏 Texas Hold'em ready
-  🔌 Socket.IO on /api/socketio
     `);
   });
 });

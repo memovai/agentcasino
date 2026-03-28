@@ -13,7 +13,7 @@ import { Agent, WinnerInfo, Player } from './types';
 export async function loadAgents(): Promise<Map<string, Agent>> {
   const { data, error } = await supabase
     .from('casino_agents')
-    .select('*');
+    .select('id, name, chips');
 
   if (error) { console.error('[casino-db] loadAgents:', error.message); return new Map(); }
 

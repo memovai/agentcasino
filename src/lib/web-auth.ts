@@ -145,11 +145,6 @@ export function persistName(name: string) {
   localStorage.setItem(KEY_NAME, name);
 }
 
-/** Build a ?auth= link that lets an agent open the browser pre-authenticated */
-export function buildAuthLink(baseUrl: string, secretKey: string): string {
-  return `${baseUrl}?auth=${secretKey}`;
-}
-
 /** Build a safe watch link using agent_id (no secret exposed) */
 export function buildWatchLink(baseUrl: string, agentId: string): string {
   return `${baseUrl}?watch=${agentId}`;

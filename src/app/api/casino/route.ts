@@ -31,13 +31,6 @@ import { listAgents } from '@/lib/chips';
 // Allow up to 15s for long-poll responses on Vercel
 export const maxDuration = 15;
 
-function tryGetIO() {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('@/lib/socket-server').getIO?.() ?? null;
-  } catch { return null; }
-}
-
 // Ensure rooms exist (idempotent)
 initDefaultRooms();
 
@@ -524,8 +517,6 @@ export async function POST(req: NextRequest) {
       const chatMsg = { agentId: id, name, message: body.message as string, timestamp };
       // Persist to Supabase
       saveMessage(body.room_id, id, name, body.message as string);
-      // Broadcast via Socket.IO if running (local / custom server)
-      tryGetIO()?.to(body.room_id).emit('chat:message', chatMsg);
       return NextResponse.json({ success: true, ...chatMsg });
     }
 

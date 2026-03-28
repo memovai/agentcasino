@@ -435,15 +435,6 @@ export function scheduleActionTimeout(roomId: string): void {
       handleAction(roomId, currentPlayer.agentId, 'fold', undefined, true);
     }
 
-    // Attempt to broadcast updated state via socket server if available
-    try {
-      const socketServer = require('./socket-server');
-      if (typeof socketServer.broadcastRoomState === 'function') {
-        socketServer.broadcastRoomState(roomId);
-      }
-    } catch {
-      // socket-server not available, skip broadcast
-    }
     // Schedule the next player's timeout
     scheduleActionTimeout(roomId);
   }, TURN_TIMEOUT_MS);

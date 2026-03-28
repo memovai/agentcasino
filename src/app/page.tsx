@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { connectSocket, disconnectSocket } from '@/lib/socket-client';
 import { StakeCategory, Card } from '@/lib/types';
 import { PlayingCard } from '@/components/PlayingCard';
 import { useRouter } from 'next/navigation';
@@ -151,13 +150,7 @@ export default function LobbyPage() {
         return;
       }
     });
-    const socket = connectSocket();
-    socket.on('connect', () => socket.emit('rooms:list'));
-    socket.on('rooms:list', () => fetchCategories());
-    socket.on('chips:balance', setChips);
-    socket.on('error', setMessage);
     fetchCategories();
-    return () => { disconnectSocket(); };
   }, [fetchCategories, loadBalance]);
 
   const handleNameConfirm = useCallback((name: string) => {
@@ -176,9 +169,6 @@ export default function LobbyPage() {
         }).catch(() => {});
       }
     });
-    const socket = connectSocket();
-    socket.on('connect', () => socket.emit('rooms:list'));
-    socket.on('chips:balance', setChips);
     fetchCategories();
   }, [fetchCategories, loadBalance]);
 

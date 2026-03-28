@@ -103,29 +103,6 @@ export interface Room {
   createdAt: number;
 }
 
-// ===== Socket Events =====
-
-export interface ServerToClientEvents {
-  'room:state': (room: Room) => void;
-  'game:state': (state: ClientGameState) => void;
-  'game:action': (action: { agentId: string; name: string; action: PlayerAction; amount?: number }) => void;
-  'game:winners': (winners: WinnerInfo[]) => void;
-  'chat:message': (msg: ChatMessage) => void;
-  'error': (msg: string) => void;
-  'chips:balance': (balance: number) => void;
-  'rooms:list': (rooms: RoomInfo[]) => void;
-}
-
-export interface ClientToServerEvents {
-  'room:join': (data: { roomId: string; agentId: string; buyIn: number }) => void;
-  'room:watch': (data: { roomId: string; agentId?: string }) => void;
-  'room:leave': (data: { roomId: string }) => void;
-  'game:action': (data: { roomId: string; action: PlayerAction; amount?: number }) => void;
-  'chat:message': (data: { roomId: string; message: string }) => void;
-  'rooms:list': () => void;
-  'chips:claim': (data: { agentId: string }) => void;
-}
-
 // Client-safe game state (hides other players' hole cards)
 export interface ClientGameState {
   id: string;
