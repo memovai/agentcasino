@@ -54,8 +54,6 @@ export interface LoginResult {
   success: boolean;
   secretKey?: string;
   publishableKey?: string;
-  /** @deprecated Use secretKey. Kept for backward compat with existing agents. */
-  apiKey?: string;
   agentId?: string;
   name?: string;
   chips?: number;
@@ -114,8 +112,6 @@ function persistKeys(
     secret_key: secretKey,
     publishable_key: publishableKey,
     auth_method: authMethod,
-    // Keep api_key in sync for backward compat during migration
-    api_key: secretKey,
   };
   if (publicKeyHex) {
     update.public_key_hex = publicKeyHex;
@@ -128,21 +124,21 @@ function persistKeys(
 
 /** Look up a session from Supabase when not found in memory (cold-start recovery) */
 async function recoverSessionFromDB(key: string): Promise<Session | null> {
-  // Try secret_key first, then publishable_key, then legacy api_key
+  const cols = 'id, name, secret_key, publishable_key, auth_method, public_key_hex';
   let query;
   if (key.startsWith('sk_')) {
-    query = supabase.from('casino_agents').select('id, name, secret_key, publishable_key, api_key, auth_method, public_key_hex').eq('secret_key', key).single();
+    query = supabase.from('casino_agents').select(cols).eq('secret_key', key).single();
   } else if (key.startsWith('pk_')) {
-    query = supabase.from('casino_agents').select('id, name, secret_key, publishable_key, api_key, auth_method, public_key_hex').eq('publishable_key', key).single();
+    query = supabase.from('casino_agents').select(cols).eq('publishable_key', key).single();
   } else {
-    // Legacy mimi_ key — look up via api_key column
-    query = supabase.from('casino_agents').select('id, name, secret_key, publishable_key, api_key, auth_method, public_key_hex').eq('api_key', key).single();
+    // Unrecognized key prefix — no match
+    return null;
   }
 
   const { data, error } = await query;
   if (error || !data) return null;
 
-  const sk = data.secret_key || data.api_key || key;
+  const sk = data.secret_key || key;
   const pk = data.publishable_key || '';
   const now = Date.now();
 
@@ -168,10 +164,10 @@ async function recoverSessionFromDB(key: string): Promise<Session | null> {
 async function agentHasKeysInDB(agentId: string): Promise<boolean> {
   const { data } = await supabase
     .from('casino_agents')
-    .select('secret_key, api_key')
+    .select('secret_key')
     .eq('id', agentId)
     .single();
-  return !!(data?.secret_key || data?.api_key);
+  return !!data?.secret_key;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,8 +177,6 @@ async function agentHasKeysInDB(agentId: string): Promise<boolean> {
 export function getKeyType(key: string): KeyType | null {
   if (key.startsWith('sk_')) return 'secret';
   if (key.startsWith('pk_')) return 'publishable';
-  // Legacy mimi_ keys are treated as secret keys
-  if (key.startsWith('mimi_')) return 'secret';
   return null;
 }
 
@@ -314,7 +308,6 @@ export function verifyMimiLogin(payload: MimiLoginPayload): LoginResult {
     success: true,
     secretKey: session.secretKey,
     publishableKey: session.publishableKey,
-    apiKey: session.secretKey, // backward compat
     agentId: agent_id,
     name: displayName,
     chips: agent.chips,
@@ -363,7 +356,6 @@ export async function simpleLogin(agentId: string, name?: string): Promise<Login
     success: true,
     secretKey: session.secretKey,
     publishableKey: session.publishableKey,
-    apiKey: session.secretKey, // backward compat
     agentId,
     name: displayName,
     chips: agent.chips,
@@ -411,8 +403,7 @@ export async function resolveAgentIdAsync(req: { apiKey?: string; agentId?: stri
 
 export function extractApiKey(authHeader: string | null): string | null {
   if (!authHeader) return null;
-  // Accept sk_, pk_, and legacy mimi_ prefixes
-  const match = authHeader.match(/^Bearer\s+((sk_|pk_|mimi_)\w+)$/i);
+  const match = authHeader.match(/^Bearer\s+((sk_|pk_)\w+)$/i);
   return match ? match[1] : null;
 }
 

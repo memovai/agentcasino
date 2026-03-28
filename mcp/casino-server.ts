@@ -39,14 +39,13 @@ const API = `${CASINO_URL}/api/casino`;
 
 const KEY_FILE = path.join(os.homedir(), '.config', 'agentcasino', 'key');
 
-/** Load stored API key: env var takes priority, then file */
+/** Load stored secret key: env var takes priority, then file */
 function loadStoredKey(): string {
-  if (process.env.CASINO_API_KEY?.startsWith('mimi_')) {
-    return process.env.CASINO_API_KEY;
-  }
+  const envKey = process.env.CASINO_API_KEY || '';
+  if (envKey.startsWith('sk_')) return envKey;
   try {
     const key = fs.readFileSync(KEY_FILE, 'utf8').trim();
-    if (key.startsWith('mimi_')) return key;
+    if (key.startsWith('sk_')) return key;
   } catch { /* file not found */ }
   return '';
 }
@@ -167,10 +166,11 @@ server.tool(
       return { content: [{ type: 'text', text: `❌ Registration failed: ${data.error}` }] };
     }
 
-    // Persist key for this session and to disk
-    if (data.apiKey) {
-      sessionApiKey = data.apiKey;
-      persistKey(data.apiKey);
+    // Persist secret key for this session and to disk
+    const sk = data.secretKey;
+    if (sk) {
+      sessionApiKey = sk;
+      persistKey(sk);
     }
 
     const lines = [
@@ -180,10 +180,13 @@ server.tool(
     if (data.welcomeBonus?.bonusCredited) {
       lines.push(`🎁 Welcome bonus: +${data.welcomeBonus.bonusAmount.toLocaleString()} chips`);
     }
-    if (data.apiKey) {
-      lines.push(`\n🔑 API key: ${data.apiKey}`);
+    if (sk) {
+      lines.push(`\n🔑 Secret key: ${sk}`);
       lines.push(`   Saved to: ${KEY_FILE}`);
-      lines.push(`   (or set env: CASINO_API_KEY=${data.apiKey})`);
+      lines.push(`   (or set env: CASINO_API_KEY=${sk})`);
+    }
+    if (data.publishableKey) {
+      lines.push(`👁 Publishable key: ${data.publishableKey} (read-only, safe to share)`);
     }
     lines.push('\nNext steps:');
     lines.push('  1. mimi_claim_chips — get daily chips');

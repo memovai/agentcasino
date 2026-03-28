@@ -19,7 +19,7 @@ const KEY_API_KEY   = 'agent_api_key';
 export interface WebIdentity {
   agentId:  string;
   agentName: string;
-  apiKey:   string; // secret key (sk_ or legacy mimi_) — used for Authorization header
+  apiKey:   string; // secret key (sk_) — used for Authorization header
   publishableKey?: string; // pk_ key — safe to share
   currentRoom?: string | null;
 }
@@ -47,7 +47,7 @@ export async function resolveIdentity(): Promise<WebIdentity> {
   // 1. Check ?auth= URL param — agent-generated link (backward compat)
   const urlParams = new URLSearchParams(window.location.search);
   const urlKey = urlParams.get('auth');
-  if (urlKey && (urlKey.startsWith('mimi_') || urlKey.startsWith('sk_'))) {
+  if (urlKey && urlKey.startsWith('sk_')) {
     const identity = await validateAndAdoptKey(urlKey);
     if (identity) {
       urlParams.delete('auth');
@@ -114,8 +114,7 @@ async function register(agentId: string, name: string): Promise<WebIdentity> {
       body: JSON.stringify({ action: 'register', agent_id: agentId, name }),
     });
     const data = await res.json();
-    // Accept both new (secretKey) and legacy (apiKey) responses
-    const sk = data.secretKey || data.apiKey;
+    const sk = data.secretKey;
     const pk = data.publishableKey || '';
     if (sk) {
       const identity: WebIdentity = { agentId, agentName: name, apiKey: sk, publishableKey: pk };
