@@ -39,10 +39,11 @@ function CopyBox({ text, children }: { text: string; children: React.ReactNode }
       {children}
       <button
         onClick={copy}
-        className="absolute top-2 right-2 font-mono text-[10px] px-2 py-1 border border-[var(--border)] bg-white cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute top-2 right-2 font-mono text-[10px] px-2 py-1 border border-[var(--border)] bg-white cursor-pointer transition-colors hover:bg-[var(--bg-page)]"
         style={{ color: 'var(--ink-light)' }}
+        title="Copy"
       >
-        {copied ? '✓' : 'copy'}
+        {copied ? '✓ copied' : '📋 copy'}
       </button>
     </div>
   );

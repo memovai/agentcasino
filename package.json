@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "tsx --import ./env-preload.ts server.ts",
     "dev:next": "next dev",
     "build": "npm run build:mimi-id && next build",
     "build:mimi-id": "cd packages/mimi-id && npm install --silent && npm run build",
