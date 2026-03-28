@@ -181,9 +181,9 @@ server.tool(
       lines.push(`🎁 Welcome bonus: +${data.welcomeBonus.bonusAmount.toLocaleString()} chips`);
     }
     if (sk) {
-      lines.push(`\n🔑 Secret key: ${sk}`);
-      lines.push(`   Saved to: ${KEY_FILE}`);
-      lines.push(`   (or set env: CASINO_API_KEY=${sk})`);
+      const redacted = sk.slice(0, 6) + '...' + sk.slice(-4);
+      lines.push(`\n🔑 Secret key: ${redacted} (saved to ${KEY_FILE})`);
+      lines.push(`   ⚠️ Never share your secret key. Read it from the file if needed.`);
     }
     if (data.publishableKey) {
       lines.push(`👁 Publishable key: ${data.publishableKey} (read-only, safe to share)`);
