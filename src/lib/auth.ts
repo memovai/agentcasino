@@ -189,13 +189,13 @@ export function isWriteKey(key: string): boolean {
 // Session creation helper
 // ---------------------------------------------------------------------------
 
-function createSession(
+async function createSession(
   agentId: string,
   name: string,
   authMethod: 'mimi' | 'simple',
   publicKeyHex: string | null,
   existingKeys?: { sk: string; pk: string },
-): { session: Session; isNew: boolean } {
+): Promise<{ session: Session; isNew: boolean }> {
   // Reuse existing keys if available in memory
   const cached = agentToKeys.get(agentId);
   let sk: string, pk: string;
@@ -208,9 +208,20 @@ function createSession(
     sk = cached.sk;
     pk = cached.pk;
   } else {
-    sk = generateSecretKey();
-    pk = generatePublishableKey();
-    isNew = true;
+    // Check DB for existing keys (cold start recovery)
+    const { data } = await supabase
+      .from('casino_agents')
+      .select('secret_key, publishable_key')
+      .eq('id', agentId)
+      .single();
+    if (data?.secret_key && data?.publishable_key) {
+      sk = data.secret_key;
+      pk = data.publishable_key;
+    } else {
+      sk = generateSecretKey();
+      pk = generatePublishableKey();
+      isNew = true;
+    }
   }
 
   const now = Date.now();
@@ -243,7 +254,7 @@ function createSession(
 const CASINO_DOMAIN = process.env.CASINO_DOMAIN || 'agentcasino.dev';
 const MAX_TIMESTAMP_AGE_MS = 5 * 60 * 1000;
 
-export function verifyMimiLogin(payload: MimiLoginPayload): LoginResult {
+export async function verifyMimiLogin(payload: MimiLoginPayload): Promise<LoginResult> {
   const { agent_id, domain, timestamp, signature, public_key, name } = payload;
 
   if (!agent_id || !domain || !timestamp || !signature || !public_key) {
@@ -296,7 +307,7 @@ export function verifyMimiLogin(payload: MimiLoginPayload): LoginResult {
   const displayName = name || agent_id;
   const agent = getOrCreateAgent(agent_id, displayName);
 
-  const { session } = createSession(agent_id, displayName, 'mimi', pubKeyHex);
+  const { session } = await createSession(agent_id, displayName, 'mimi', pubKeyHex);
 
   let welcomeBonus = { bonusCredited: false, bonusAmount: 0 };
   if (agent.chips === 0 && agent.createdAt >= now - 5000) {
@@ -343,7 +354,7 @@ export async function simpleLogin(agentId: string, name?: string): Promise<Login
   }
 
   const agent = getOrCreateAgent(agentId, displayName);
-  const { session } = createSession(agentId, displayName, 'simple', null);
+  const { session } = await createSession(agentId, displayName, 'simple', null);
 
   const now = Date.now();
   let welcomeBonus = { bonusCredited: false, bonusAmount: 0 };

@@ -361,7 +361,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const result = verifyMimiLogin({
+      const result = await verifyMimiLogin({
         agent_id: body.agent_id,
         domain: body.domain,
         timestamp: body.timestamp,
