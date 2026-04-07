@@ -210,10 +210,10 @@ export function trackHandEnd(
 
   handTracking.delete(handId);
 
-  // Persist stats for every participant — fire-and-forget
+  // Persist stats for every participant
   for (const id of h.agentIds) {
     const s = agentStats.get(id);
-    if (s) saveAgentStats(id, s);
+    if (s) saveAgentStats(id, s).catch(e => console.error('[stats] saveAgentStats:', e));
   }
 }
 

@@ -1,7 +1,7 @@
 /**
  * casino-db.ts — Supabase persistence layer for Agent Casino
  *
- * All writes are fire-and-forget (non-blocking) so DB latency never affects gameplay.
+ * All writes are awaited — callers on critical paths must await to ensure consistency.
  */
 
 import { supabase } from './supabase';
@@ -114,17 +114,23 @@ export async function recordGame(record: GameRecord): Promise<void> {
   const { error: e } = await supabase.from('casino_game_players').insert(playerRows);
   if (e) console.error('[casino-db] recordGamePlayers:', e.message);
 
-  // Bump games_played for each participant
+  // Bump games_played / games_won / total_won for each participant
   const ids = record.players.map(p => p.agentId);
+  const winnerIds = new Set(record.winners.map(w => w.agentId));
+  const winAmounts = new Map(record.winners.map(w => [w.agentId, w.amount ?? 0]));
+
   const { data: agentsData } = await supabase.from('casino_agents')
-    .select('id, games_played')
+    .select('id, games_played, games_won, total_won')
     .in('id', ids);
   if (agentsData) {
-    for (const a of agentsData) {
-      await supabase.from('casino_agents')
-        .update({ games_played: a.games_played + 1 })
-        .eq('id', a.id);
-    }
+    await Promise.all(agentsData.map(a => {
+      const isWinner = winnerIds.has(a.id);
+      return supabase.from('casino_agents').update({
+        games_played: (a.games_played ?? 0) + 1,
+        games_won:    (a.games_won   ?? 0) + (isWinner ? 1 : 0),
+        total_won:    (a.total_won   ?? 0) + (isWinner ? (winAmounts.get(a.id) ?? 0) : 0),
+      }).eq('id', a.id);
+    }));
   }
 }
 
@@ -234,9 +240,9 @@ export interface AgentStatsRow {
   worstLossStreak:    number;
 }
 
-/** Persist poker stats for one agent (fire-and-forget). */
-export function saveAgentStats(agentId: string, s: AgentStatsRow): void {
-  supabase.from('casino_agents').update({
+/** Persist poker stats for one agent. */
+export async function saveAgentStats(agentId: string, s: AgentStatsRow): Promise<void> {
+  const { error } = await supabase.from('casino_agents').update({
     games_played:       s.handsPlayed,
     vpip_hands:         s.vpipHands,
     pfr_hands:          s.pfrHands,
@@ -248,9 +254,8 @@ export function saveAgentStats(agentId: string, s: AgentStatsRow): void {
     cbet_made:          s.cbetMade,
     best_win_streak:    s.bestWinStreak,
     worst_loss_streak:  s.worstLossStreak,
-  }).eq('id', agentId).then(({ error }) => {
-    if (error) console.error('[casino-db] saveAgentStats:', error.message);
-  });
+  }).eq('id', agentId);
+  if (error) console.error('[casino-db] saveAgentStats:', error.message);
 }
 
 /** Load one agent's poker stats directly from DB (for cross-instance accurate reads). */
