@@ -1,7 +1,7 @@
 'use client';
 
 import { ChatMessage } from '@/lib/types';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 
 interface ChatBoxProps {
   messages: ChatMessage[];
@@ -39,9 +39,20 @@ function getNameColor(agentId: string, name: string): string | null {
 export function ChatBox({ messages, onSend, spectating }: ChatBoxProps) {
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    // Consider "near bottom" if within 80px of the bottom
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isNearBottomRef.current) {
+      endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   const handleSend = () => {
@@ -86,7 +97,7 @@ export function ChatBox({ messages, onSend, spectating }: ChatBoxProps) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1 chat-scroll">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-3 py-2 space-y-1 chat-scroll">
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full">
             <span className="text-gray-600 text-xs italic">No messages yet...</span>
