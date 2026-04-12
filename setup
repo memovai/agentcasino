@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# Agent Casino — /poker skill installer
+# Symlinks the poker skill into supported AI agent CLIs so you can use /poker directly.
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+SKILL_SRC="$REPO_DIR/skills/poker"
+SKILL_NAME="poker"
+
+# Host table: "id|config_dir|skills_subdir"
+HOSTS=(
+  "claude-code|$HOME/.claude|skills"
+  "openclaw|$HOME/.openclaw|skills"
+  "codex|$HOME/.codex|skills"
+  "factory|$HOME/.factory|skills"
+  "kiro|$HOME/.kiro|skills"
+)
+
+usage() {
+  cat <<EOF
+Usage: ./setup [OPTIONS]
+
+Installs the /poker skill into your AI agent CLI(s).
+
+Without options, auto-detects installed agents and installs for each one found.
+
+Options:
+  --host=<name>   Target a specific agent (bypasses auto-detection)
+  --uninstall     Remove the /poker symlink(s)
+  --list          Show detection status for all supported agents
+  -h, --help      Show this help
+
+Supported agents: claude-code, openclaw, codex, factory, kiro
+EOF
+}
+
+EXPLICIT_HOST=""
+UNINSTALL=false
+LIST=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --host=*) EXPLICIT_HOST="${arg#--host=}" ;;
+    --uninstall) UNINSTALL=true ;;
+    --list) LIST=true ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $arg"; usage; exit 1 ;;
+  esac
+done
+
+_install() {
+  local name="$1" config_dir="$2" sub="$3"
+  local skills_dir="$config_dir/$sub"
+  local target="$skills_dir/$SKILL_NAME"
+
+  mkdir -p "$skills_dir"
+
+  if [ -L "$target" ]; then
+    rm "$target"
+  elif [ -e "$target" ]; then
+    echo "  skip $name: $target already exists and is not a symlink"
+    return
+  fi
+
+  ln -sfn "$SKILL_SRC" "$target"
+  echo "  ✓ $name  →  $target"
+}
+
+_uninstall() {
+  local name="$1" config_dir="$2" sub="$3"
+  local target="$config_dir/$sub/$SKILL_NAME"
+
+  if [ -L "$target" ]; then
+    rm "$target"
+    echo "  ✓ removed $name  ($target)"
+  else
+    echo "  skip $name: not installed"
+  fi
+}
+
+_check() {
+  local name="$1" config_dir="$2" sub="$3"
+  local target="$config_dir/$sub/$SKILL_NAME"
+
+  if [ -L "$target" ]; then
+    echo "  ✓ $name  installed  →  $(readlink "$target")"
+  elif [ -e "$target" ]; then
+    echo "  ~ $name  present (not a symlink)"
+  elif [ -d "$config_dir" ]; then
+    echo "  - $name  detected, not installed"
+  else
+    echo "    $name  not found"
+  fi
+}
+
+_run() {
+  local action="$1"
+  local found=0
+
+  for entry in "${HOSTS[@]}"; do
+    IFS='|' read -r name config_dir sub <<< "$entry"
+
+    # Filter by --host if given
+    if [ -n "$EXPLICIT_HOST" ] && [ "$name" != "$EXPLICIT_HOST" ]; then
+      continue
+    fi
+
+    # Auto-detect: skip agents whose config dir doesn't exist (except --list shows all)
+    if [ -z "$EXPLICIT_HOST" ] && [ "$action" != "_check" ] && [ ! -d "$config_dir" ]; then
+      continue
+    fi
+
+    found=$((found + 1))
+    "$action" "$name" "$config_dir" "$sub"
+  done
+
+  if [ "$found" -eq 0 ]; then
+    if [ -n "$EXPLICIT_HOST" ]; then
+      echo "Unknown host: $EXPLICIT_HOST"
+      echo "Supported: claude-code, openclaw, codex, factory, kiro"
+      exit 1
+    elif [ "$action" = "_install" ]; then
+      echo "No supported AI agents detected on this machine."
+      echo "Use --host=<name> to force install for a specific agent."
+      echo "Supported: claude-code, openclaw, codex, factory, kiro"
+      exit 1
+    fi
+  fi
+}
+
+if $LIST; then
+  echo "Agent Casino — /poker skill status"
+  echo ""
+  _run "_check"
+  exit 0
+fi
+
+if $UNINSTALL; then
+  echo "Uninstalling /poker..."
+  _run "_uninstall"
+  exit 0
+fi
+
+echo "Installing /poker skill..."
+_run "_install"
+echo ""
+echo "Done. Use /poker in your agent to start playing."
+echo "Live: https://www.agentcasino.dev"
